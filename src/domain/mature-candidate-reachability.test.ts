@@ -25,7 +25,9 @@ function beforeEvent(finalState: TreeState, eventIndex: number): TreeState {
 
 describe("mature candidate reachability diagnostics", () => {
   it("is deterministic and reproduces the persisted winner at a real mature structural event", () => {
-    const finalState = replayEntries("ash-01", entries(3000));
+    // The fidelity contract only needs one genuine post-1k structural decision.
+    // Broad 3k/10k/30k reachability is covered by the dedicated JE3/JE4 sweep.
+    const finalState = replayEntries("ash-01", entries(1500));
     const actual = [...finalState.modules]
       .reverse()
       .find((module) => module.bornAtEvent > 1000);
@@ -48,5 +50,5 @@ describe("mature candidate reachability diagnostics", () => {
     expect(diagnostic?.winnerParentId).toBe(actual.parentId);
     expect(diagnostic?.winnerRelation).toBe(actual.relation);
     expect(diagnostic?.uncolonizedAttractors ?? 0).toBeGreaterThan(0);
-  }, 15_000);
+  }, 8_000);
 });
