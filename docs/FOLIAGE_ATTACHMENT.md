@@ -34,7 +34,7 @@ For accepted entry N:
 
 Wood born during event N is eligible for event N's foliage identity. Future wood is impossible to reference.
 
-Canonical replay globally de-duplicates entry IDs before rebuilding. Durable storage is expected to enforce entry IDs as unique keys when persistence is introduced.
+Canonical replay globally de-duplicates entry IDs before rebuilding. Durable storage is expected to enforce entry IDs as unique keys when persistence is introduced. The domain's live append path therefore does not scan every historical identity merely to guard against an old duplicate.
 
 ## Host selection
 
@@ -75,7 +75,7 @@ Per accepted entry, foliage assignment performs approximately:
 
 Its work depends on current wood complexity, **not on the number of historical foliage identities**.
 
-Canonical replay uses one internal mutable reconstruction buffer so loading a long history does not allocate every intermediate immutable prefix. The returned `TreeState` remains deterministic and append-only.
+Canonical replay uses one internal mutable reconstruction buffer so loading a long history does not allocate every intermediate immutable prefix. The externally returned `TreeState` remains deterministic and append-only. A normal live append still returns a new immutable state and is tested separately after a 30,000-entry reconstruction.
 
 ## Derived debug projection
 
@@ -113,7 +113,7 @@ The non-visual longevity test reconstructs the same soul at **3,000, 10,000, and
 - foliage does not collapse onto one module, axis, trunk, or side;
 - a new live append does not rewrite the 30,000-entry history.
 
-There is intentionally no maximum-entry constant in the domain contract.
+30,000 is only the current stress target. There is intentionally no maximum-entry constant in the domain contract.
 
 ## What is not solved yet
 
