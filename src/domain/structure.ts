@@ -950,13 +950,26 @@ function lateralDivergence(
   return traits.branchAngle * orderScale * familyScale;
 }
 
-function scoreCandidate(
+export interface CandidateScoreBreakdown {
+  baseVigorContribution: number;
+  spaceContribution: number;
+  crownEnvelopeContribution: number;
+  opportunityContribution: number;
+  firstOrderSideContribution: number;
+  architectureContribution: number;
+  recencyContribution: number;
+  jitterContribution: number;
+  nonOpportunityScore: number;
+  totalScore: number;
+}
+
+function candidateScoreBreakdown(
   state: TreeState,
   context: GrowthContext,
   eventIndex: number,
   candidate: Omit<Candidate, "score">,
   traits: TreeTraits,
-): Candidate | null {
+): CandidateScoreBreakdown | null {
   const parent = context.projectedById.get(candidate.parent.id);
   const spatialParent = context.spatialById.get(candidate.parent.id);
   if (!parent || !spatialParent) return null;
@@ -997,11 +1010,20 @@ function scoreCandidate(
     1.45,
     clearance / Math.max(4, candidate.length * 0.45),
   );
-  const firstOrderSide =
-    candidate.relation === "lateral" && candidate.order === 1
-      ? firstOrderSideScore(end, context, traits)
-      : 0;
-  const opportunityScore =
+  const baseVigorContribution = baseVigor(
+    candidate.relation,
+    candidate.order,
+    parentAge,
+    traits,
+  );
+  const spaceContribution = spaceScore * 0.78;
+  const crownEnvelopeContribution = crownEnvelopeScore(
+    context.bounds,
+    end,
+    traits,
+    state.modules.length,
+  );
+  const opportunityContribution =
     eventIndex <= MATURE_STRUCTURE_HORIZON
       ? crownGapScore(state, context, end, candidate.length, traits)
       : matureVolumeOpportunityScore(
@@ -1011,24 +1033,74 @@ function scoreCandidate(
           end,
           endDepth,
         );
-  const jitter = keyedRange(
+  const firstOrderSideContribution =
+    candidate.relation === "lateral" && candidate.order === 1
+      ? firstOrderSideScore(end, context, traits)
+      : 0;
+  const architectureContribution = architectureScore(
+    state,
+    context,
+    candidate,
+    traits,
+  );
+  const recencyPenalty = structuralRecencyPenalty(state, context, candidate);
+  const recencyContribution = -recencyPenalty;
+  const jitterContribution = keyedRange(
     state.soul,
     `structure:${eventIndex}:${candidate.parent.id}:${candidate.relation}:${candidate.heading}:jitter`,
     -0.1,
     0.1,
   );
 
-  const score =
-    baseVigor(candidate.relation, candidate.order, parentAge, traits) +
-    spaceScore * 0.78 +
-    crownEnvelopeScore(context.bounds, end, traits, state.modules.length) +
-    opportunityScore +
-    firstOrderSide +
-    architectureScore(state, context, candidate, traits) -
-    structuralRecencyPenalty(state, context, candidate) +
-    jitter;
+  // Keep the production arithmetic in the exact same term order as the
+  // pre-JE5 score expression. JE5 observes composition; it does not tune it.
+  const totalScore =
+    baseVigorContribution +
+    spaceContribution +
+    crownEnvelopeContribution +
+    opportunityContribution +
+    firstOrderSideContribution +
+    architectureContribution -
+    recencyPenalty +
+    jitterContribution;
+  const nonOpportunityScore =
+    baseVigorContribution +
+    spaceContribution +
+    crownEnvelopeContribution +
+    firstOrderSideContribution +
+    architectureContribution -
+    recencyPenalty +
+    jitterContribution;
 
-  return { ...candidate, score };
+  return {
+    baseVigorContribution,
+    spaceContribution,
+    crownEnvelopeContribution,
+    opportunityContribution,
+    firstOrderSideContribution,
+    architectureContribution,
+    recencyContribution,
+    jitterContribution,
+    nonOpportunityScore,
+    totalScore,
+  };
+}
+
+function scoreCandidate(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  candidate: Omit<Candidate, "score">,
+  traits: TreeTraits,
+): Candidate | null {
+  const breakdown = candidateScoreBreakdown(
+    state,
+    context,
+    eventIndex,
+    candidate,
+    traits,
+  );
+  return breakdown ? { ...candidate, score: breakdown.totalScore } : null;
 }
 
 function continuationCandidates(
@@ -1388,6 +1460,11 @@ export interface MatureCandidateReachabilityDiagnostics {
   winnerParentId: string | null;
   winnerRelation: Exclude<GrowthRelation, "origin"> | null;
   winnerScore: number;
+  bestOpportunityParentId: string | null;
+  bestOpportunityRelation: Exclude<GrowthRelation, "origin"> | null;
+  winnerBreakdown: CandidateScoreBreakdown;
+  bestOpportunityBreakdown: CandidateScoreBreakdown;
+  breakEvenOpportunityWeight: number | null;
 }
 
 function candidateSort(a: Candidate, b: Candidate): number {
@@ -1444,17 +1521,28 @@ export function diagnoseMatureCandidateReachability(
       end,
       endDepth,
     );
+    const breakdown = candidateScoreBreakdown(
+      state,
+      context,
+      eventIndex,
+      candidate,
+      traits,
+    );
+    if (!breakdown) {
+      throw new Error(`JE5 legal candidate ${candidate.parent.id} failed score re-evaluation`);
+    }
+    if (Math.abs(breakdown.totalScore - candidate.score) > 1e-9) {
+      throw new Error(
+        `JE5 score breakdown drift for ${candidate.parent.id}: ` +
+          `${breakdown.totalScore} vs ${candidate.score}`,
+      );
+    }
     return {
       candidate,
       normalized,
       parentNormalized,
-      opportunity: matureVolumeOpportunityScore(
-        state,
-        context,
-        eventIndex,
-        end,
-        endDepth,
-      ),
+      opportunity: breakdown.opportunityContribution,
+      breakdown,
     };
   });
 
@@ -1550,6 +1638,26 @@ export function diagnoseMatureCandidateReachability(
   );
   const winnerOpportunityRank =
     opportunitySorted.findIndex((item) => item.candidate === winner) + 1;
+  const bestOpportunityItem = opportunitySorted[0];
+  if (!winnerItem || !bestOpportunityItem) {
+    throw new Error(`JE5 could not resolve winner/opportunity candidate at ${eventIndex}`);
+  }
+  const opportunityDelta =
+    bestOpportunityItem.breakdown.opportunityContribution -
+    winnerItem.breakdown.opportunityContribution;
+  let breakEvenOpportunityWeight: number | null =
+    bestOpportunityItem.candidate === winner ? 1 : null;
+  if (
+    bestOpportunityItem.candidate !== winner &&
+    opportunityDelta > 1e-9
+  ) {
+    breakEvenOpportunityWeight = Math.max(
+      0,
+      (winnerItem.breakdown.nonOpportunityScore -
+        bestOpportunityItem.breakdown.nonOpportunityScore) /
+        opportunityDelta,
+    );
+  }
 
   const positiveBest = bestImprovements.filter((value) => value > 1e-9);
   const meaningfulBest = bestImprovements.filter((value) => value > 0.03);
@@ -1599,6 +1707,11 @@ export function diagnoseMatureCandidateReachability(
     winnerParentId: winner.parent.id,
     winnerRelation: winner.relation,
     winnerScore: winner.score,
+    bestOpportunityParentId: bestOpportunityItem.candidate.parent.id,
+    bestOpportunityRelation: bestOpportunityItem.candidate.relation,
+    winnerBreakdown: winnerItem.breakdown,
+    bestOpportunityBreakdown: bestOpportunityItem.breakdown,
+    breakEvenOpportunityWeight,
   };
 }
 
