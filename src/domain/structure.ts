@@ -195,7 +195,7 @@ function proposedClearance(
 ): number {
   let clearance = Number.POSITIVE_INFINITY;
   for (const segment of segments) {
-    if (segment.id === parentId) continue;
+    if (segment.id === parentId || segment.parentId === parentId) continue;
     clearance = Math.min(
       clearance,
       segmentToSegmentDistance(start, end, segment.start, segment.end),
