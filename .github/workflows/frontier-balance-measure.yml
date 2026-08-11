@@ -1,0 +1,44 @@
+name: Mature Scaffold Frontier Balance
+
+on:
+  push:
+    branches:
+      - v3-spatial-volume-jd
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.event.head_commit.message == 'Measure mature scaffold frontier balance once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Measure frontier balance
+        shell: bash
+        env:
+          VITE_FRONTIER_BALANCE_MEASURE: "1"
+        run: |
+          set -euo pipefail
+          npm exec -- vitest run src/domain/frontier-balance.measure.test.ts --reporter=verbose 2>&1 | tee frontier-balance-report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontier-balance-report
+          path: frontier-balance-report.txt
+          if-no-files-found: error
+          retention-days: 14
