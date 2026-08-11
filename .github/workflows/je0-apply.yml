@@ -1,0 +1,150 @@
+name: Apply JE0 Successor Semantics
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-je0-successor
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage JE0 successor semantics'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-spatial-depth-je0-successor
+
+      - name: Restore sympodial successor semantics
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # ---------------- structure.ts ----------------
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+
+          old = 'import { keyedRange } from "./random";\n'
+          new = 'import { keyedRange } from "./random";\nimport { compareStableStrings } from "./stable-order";\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'stable-order import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          replacements = [
+            (
+              '  continuationParents: Set<string>;\n  lateralParents: Set<string>;\n',
+              '  continuationParents: Set<string>;\n  successorParents: Set<string>;\n  lateralParents: Set<string>;\n',
+            ),
+            (
+              '  const continuationParents = new Set<string>();\n  const lateralParents = new Set<string>();\n',
+              '  const continuationParents = new Set<string>();\n  const successorParents = new Set<string>();\n  const lateralParents = new Set<string>();\n',
+            ),
+          ]
+          for old, new in replacements:
+            if text.count(old) != 1:
+              raise SystemExit(f'structure marker count={text.count(old)}: {old[:80]!r}')
+            text = text.replace(old, new, 1)
+
+          old = '''    if (module.parentId && module.relation === "continuation") {\n      continuationParents.add(module.parentId);\n    }\n\n    if (\n      module.parentId &&\n      (module.relation === "lateral" || module.relation === "renewal")\n    ) {\n      lateralParents.add(module.parentId);\n      const parentAxis = moduleById.get(module.parentId)?.axisId;\n      if (parentAxis) {\n        lateralFromAxisCounts.set(\n          parentAxis,\n          (lateralFromAxisCounts.get(parentAxis) ?? 0) + 1,\n        );\n        latestLateralFromAxisPositions.set(parentAxis, index);\n      }\n    }\n'''
+          new = '''    if (\n      module.parentId &&\n      (module.relation === "continuation" || module.relation === "renewal")\n    ) {\n      successorParents.add(module.parentId);\n    }\n    if (module.parentId && module.relation === "continuation") {\n      continuationParents.add(module.parentId);\n    }\n\n    if (module.parentId && module.relation === "lateral") {\n      lateralParents.add(module.parentId);\n      const parentAxis = moduleById.get(module.parentId)?.axisId;\n      if (parentAxis) {\n        lateralFromAxisCounts.set(\n          parentAxis,\n          (lateralFromAxisCounts.get(parentAxis) ?? 0) + 1,\n        );\n        latestLateralFromAxisPositions.set(parentAxis, index);\n      }\n    }\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'relation context block count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '    .filter((module) => !continuationParents.has(module.id))\n'
+          new = '    .filter((module) => !successorParents.has(module.id))\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'axis tip marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '    continuationParents,\n    lateralParents,\n'
+          new = '    continuationParents,\n    successorParents,\n    lateralParents,\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'context return marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '    if (context.continuationParents.has(parent.id)) continue;\n'
+          new = '    if (context.successorParents.has(parent.id)) continue;\n'
+          # Exactly one occurrence belongs to continuationCandidates. The lateral
+          # function has the opposite `!context.continuationParents` condition.
+          if text.count(old) != 1:
+            raise SystemExit(f'continuation successor marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          start = text.index('function renewalCandidates(')
+          end = text.index('\nfunction initialModule(', start)
+          renewal = '''function renewalCandidates(\n  state: TreeState,\n  context: GrowthContext,\n  eventIndex: number,\n  traits: TreeTraits,\n): Candidate[] {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];\n\n  const result: Candidate[] = [];\n\n  for (const parent of state.modules) {\n    if (parent.order !== MAX_ORDER) continue;\n    if (context.successorParents.has(parent.id)) continue;\n\n    const parentPosition = context.modulePositions.get(parent.id);\n    if (parentPosition === undefined) continue;\n    const structuralAge = state.modules.length - 1 - parentPosition;\n    if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n    if (axisModules < preferredAxisModules(MAX_ORDER, traits)) continue;\n\n    const projection = context.projectedById.get(parent.id);\n    if (!projection) continue;\n\n    const divergence =\n      lateralDivergence(state, eventIndex, parent, MAX_ORDER, traits) * 0.55;\n    const length = candidateLength(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "renewal",\n      MAX_ORDER,\n      traits,\n    );\n\n    for (const side of [-1, 1] as const) {\n      const heading = Math.max(\n        -82,\n        Math.min(82, projection.heading + side * divergence),\n      );\n      const depthDelta = candidateDepthDelta(\n        state,\n        context,\n        eventIndex,\n        parent,\n        "renewal",\n        `axis-${eventIndex}`,\n        length,\n        side,\n      );\n      const scored = scoreCandidate(\n        state,\n        context,\n        eventIndex,\n        {\n          parent,\n          relation: "renewal",\n          axisId: `axis-${eventIndex}`,\n          order: MAX_ORDER,\n          heading,\n          length,\n          depthDelta,\n        },\n        traits,\n      );\n      if (scored) result.push(scored);\n    }\n  }\n\n  return result;\n}\n'''
+          text = text[:start] + renewal + text[end:]
+
+          old = '      a.parent.id.localeCompare(b.parent.id) ||\n'
+          new = '      compareStableStrings(a.parent.id, b.parent.id) ||\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'stable tie marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          required = [
+            'successorParents: Set<string>;',
+            '!successorParents.has(module.id)',
+            'context.successorParents.has(parent.id)',
+            'lateralDivergence(state, eventIndex, parent, MAX_ORDER, traits) * 0.55',
+            'compareStableStrings(a.parent.id, b.parent.id)',
+          ]
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+            raise SystemExit(f'missing structure markers: {missing}')
+          path.write_text(text)
+
+          # ---------------- geometry.ts ----------------
+          path = Path('src/domain/geometry.ts')
+          text = path.read_text()
+
+          old = '''function curveHandleLength(\n  segment: ProjectedSegment,\n  relation: GrowthModule["relation"],\n  tangent: number,\n  atStart: boolean,\n): number {\n  const baseScale = atStart\n    ? relation === "lateral" || relation === "renewal"\n      ? 0.17\n      : 0.24\n    : 0.24;\n'''
+          new = '''function isRenewal(relation: GrowthModule["relation"]): boolean {\n  return relation === "renewal";\n}\n\nfunction curveHandleLength(\n  segment: ProjectedSegment,\n  relation: GrowthModule["relation"],\n  tangent: number,\n  atStart: boolean,\n): number {\n  const baseScale = atStart\n    ? relation === "lateral"\n      ? 0.17\n      : isRenewal(relation)\n        ? 0.2\n        : 0.24\n    : 0.24;\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'curve handle marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    } else if (\n      (module.relation === "lateral" || module.relation === "renewal") &&\n      parentSegment\n    ) {\n      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);\n    }\n'''
+          new = '''    } else if (module.relation === "lateral" && parentSegment) {\n      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);\n    } else if (module.relation === "renewal" && parentSegment) {\n      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.5);\n    }\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'start tangent marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    } else if (\n      (module.relation === "lateral" || module.relation === "renewal") &&\n      parentCurve\n    ) {\n      startThickness = Math.min(\n        segment.thickness * 1.05,\n        parentCurve.endThickness * 0.72,\n      );\n    }\n'''
+          new = '''    } else if (module.relation === "lateral" && parentCurve) {\n      startThickness = Math.min(\n        segment.thickness * 1.05,\n        parentCurve.endThickness * 0.72,\n      );\n    } else if (module.relation === "renewal" && parentCurve) {\n      startThickness = Math.min(\n        segment.thickness * 1.05,\n        parentCurve.endThickness * 0.86,\n      );\n    }\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'thickness marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          # ---------------- diagnostics.ts ----------------
+          path = Path('src/domain/diagnostics.ts')
+          text = path.read_text()
+          old = '  const sideBranchParents = new Set<string>();\n'
+          new = '  const successorParents = new Set<string>();\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'diagnostics parent marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''      if (module.relation === "lateral" || module.relation === "renewal") {\n        if (sideBranchParents.has(module.parentId)) {\n          errors.push(`parent ${module.parentId} has more than one side-branch child`);\n        }\n        sideBranchParents.add(module.parentId);\n      }\n'''
+          new = '''      if (module.relation === "continuation" || module.relation === "renewal") {\n        if (successorParents.has(module.parentId)) {\n          errors.push(`parent ${module.parentId} has more than one successor child`);\n        }\n        successorParents.add(module.parentId);\n      }\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'diagnostics successor block count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          # ---------------- regression test ----------------
+          Path('src/domain/je0-successor.test.ts').write_text('''import { describe, expect, it } from "vitest";\nimport { diagnoseTree } from "./diagnostics";\nimport { replayEntries } from "./growth";\nimport type { Entry } from "./types";\n\nfunction entries(count: number): Entry[] {\n  return Array.from({ length: count }, (_, index) => ({\n    id: `je0-${index + 1}`,\n    text: `JE0 ${index + 1}`,\n    createdAt: index + 1,\n    status: "open" as const,\n  }));\n}\n\ndescribe("JE0 sympodial successor semantics", () => {\n  it("gives every structural parent at most one continuation-or-renewal successor", () => {\n    let renewalCount = 0;\n    for (const soul of ["ash-01", "ash-02", "ash-03", "ash-04"]) {\n      const state = replayEntries(soul, entries(3000));\n      expect(diagnoseTree(state).invariantErrors).toEqual([]);\n\n      const successors = new Map<string, string[]>();\n      for (const module of state.modules) {\n        if (!module.parentId) continue;\n        if (module.relation === "continuation" || module.relation === "renewal") {\n          const list = successors.get(module.parentId) ?? [];\n          list.push(module.relation);\n          successors.set(module.parentId, list);\n        }\n        if (module.relation === "renewal") {\n          renewalCount += 1;\n          expect(module.bornAtEvent).toBeGreaterThan(1000);\n          expect(module.order).toBe(4);\n          const parent = state.modules.find((candidate) => candidate.id === module.parentId);\n          expect(parent?.order).toBe(4);\n          expect(module.axisId).not.toBe(parent?.axisId);\n        }\n      }\n\n      for (const relations of successors.values()) {\n        expect(relations).toHaveLength(1);\n      }\n\n      for (const module of state.modules.filter((candidate) => candidate.bornAtEvent <= 1000)) {\n        expect(module.restDepth).toBe(0);\n        expect(module.relation).not.toBe("renewal");\n      }\n    }\n    expect(renewalCount).toBeGreaterThan(0);\n  }, 20_000);\n});\n''')
+
+      - name: Commit JE0
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/domain/structure.ts src/domain/geometry.ts src/domain/diagnostics.ts src/domain/je0-successor.test.ts
+          git commit -m "Restore sympodial successor semantics in 2.5D base"
+          git push origin HEAD:v3-spatial-depth-je0-successor
