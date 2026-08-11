@@ -40,6 +40,7 @@ interface GrowthContext {
   segments: ProjectedSegment[];
   projectedById: Map<string, ProjectedSegment>;
   bounds: Bounds;
+  matureReferenceBounds: Bounds;
   continuationParents: Set<string>;
   lateralParents: Set<string>;
   axisModuleCounts: Map<string, number>;
@@ -81,6 +82,9 @@ function boundsFor(segments: readonly ProjectedSegment[]): Bounds {
 function buildGrowthContext(state: TreeState): GrowthContext {
   const segments = projectTree(state);
   const projectedById = new Map(segments.map((segment) => [segment.id, segment]));
+  const matureReferenceBounds = boundsFor(
+    segments.filter((segment) => segment.bornAtEvent <= MATURE_STRUCTURE_HORIZON),
+  );
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   const continuationParents = new Set<string>();
   const lateralParents = new Set<string>();
@@ -157,6 +161,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     segments,
     projectedById,
     bounds: boundsFor(segments),
+    matureReferenceBounds,
     continuationParents,
     lateralParents,
     axisModuleCounts,
@@ -268,6 +273,28 @@ function boundsAspect(bounds: Bounds): number {
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const height = Math.max(1, bounds.maxY - bounds.minY);
   return width / height;
+}
+
+function insideMatureCrownEnvelope(
+  context: GrowthContext,
+  eventIndex: number,
+  end: Point,
+): boolean {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return true;
+
+  const ageRatio = Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON);
+  const ageLog = Math.log2(ageRatio);
+  const horizontalScale = 1 + ageLog * 0.18;
+  const verticalScale = 1 + ageLog * 0.14;
+  const reference = context.matureReferenceBounds;
+  const cushion = 6;
+
+  return (
+    end.x >= reference.minX * horizontalScale - cushion - 1e-9 &&
+    end.x <= reference.maxX * horizontalScale + cushion + 1e-9 &&
+    end.y >= reference.minY * verticalScale - cushion - 1e-9 &&
+    end.y <= 1e-9
+  );
 }
 
 function violatesBroadCrownEnvelope(
@@ -551,6 +578,7 @@ function scoreCandidate(
     return null;
   }
   if (candidate.length <= 0.5) return null;
+  if (!insideMatureCrownEnvelope(context, eventIndex, end)) return null;
   if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {
     return null;
   }
