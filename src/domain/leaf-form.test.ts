@@ -120,8 +120,31 @@ describe("V3 Leaf Form V1", () => {
     expect(first.baseLength).toBeLessThanOrEqual(9.2);
     expect(first.widthRatio).toBeGreaterThanOrEqual(0.32);
     expect(first.widthRatio).toBeLessThanOrEqual(0.43);
-    expect(first.forwardBias).toBeGreaterThanOrEqual(0.52);
-    expect(first.forwardBias).toBeLessThanOrEqual(0.66);
+    expect(first.forwardBias).toBeGreaterThanOrEqual(0.18);
+    expect(first.forwardBias).toBeLessThanOrEqual(0.3);
+    expect(first.lightBias).toBeGreaterThanOrEqual(0.025);
+    expect(first.lightBias).toBeLessThanOrEqual(0.055);
+    expect(first.sagBias).toBeGreaterThanOrEqual(0.045);
+    expect(first.sagBias).toBeLessThanOrEqual(0.085);
+  });
+
+  it("does not globally force mature foliage upward", () => {
+    const souls = ["ash-01", "ash-02", "ash-03", "ash-04", "ash-05", "ash-06", "ash-07", "ash-08"];
+    const history = entries(1000);
+
+    for (const soul of souls) {
+      const forms = projectLeafForms(replayEntries(soul, history));
+      const stronglyUp = forms.filter((form) => form.direction.y < -0.5).length / forms.length;
+      const lateralOrDown = forms.filter((form) => form.direction.y >= -0.15).length / forms.length;
+      const down = forms.filter((form) => form.direction.y > 0.05).length / forms.length;
+
+      // The exact proportions are not botanical truth; they are broad guards
+      // against the previous failure where the renderer made "up" the default
+      // posture for almost the entire crown.
+      expect(stronglyUp, `${soul} strongly-up fraction`).toBeLessThan(0.78);
+      expect(lateralOrDown, `${soul} lateral/down fraction`).toBeGreaterThan(0.16);
+      expect(down, `${soul} downward fraction`).toBeGreaterThan(0.035);
+    }
   });
 
   it("does not move or reshape a leaf when entry status changes", () => {
