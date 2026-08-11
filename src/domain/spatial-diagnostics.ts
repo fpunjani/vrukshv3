@@ -30,6 +30,7 @@ function isLocalJunction(
 
 export function diagnoseSpatialWood(state: TreeState): SpatialWoodDiagnostics {
   const segments = projectTreeSpatial(state);
+  const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   let projectedCrossings = 0;
   let depthSeparatedProjectedCrossings = 0;
   let unsafeSpatialPairs = 0;
@@ -71,7 +72,7 @@ export function diagnoseSpatialWood(state: TreeState): SpatialWoodDiagnostics {
       Math.abs(segment.startDepth),
       Math.abs(segment.endDepth),
     );
-    const module = state.modules.find((candidate) => candidate.id === segment.id);
+    const module = moduleById.get(segment.id);
     if (module && Math.abs(module.restDepth) > 1e-9) nonZeroDepthModules += 1;
   }
 

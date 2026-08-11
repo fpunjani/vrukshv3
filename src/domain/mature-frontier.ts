@@ -10,6 +10,7 @@ export interface MatureFrontierDiagnostics {
   postHorizonModules: number;
   postHorizonContinuations: number;
   postHorizonLaterals: number;
+  postHorizonRenewals: number;
   postHorizonOrderCounts: number[];
   newOrder1Axes: number;
   legacyWoodLateralActivations: number;
@@ -129,6 +130,10 @@ export function diagnoseMatureFrontier(
   const postLaterals = postHorizon.filter(
     (module) => module.relation === "lateral",
   );
+  const postRenewals = postHorizon.filter(
+    (module) => module.relation === "renewal",
+  );
+  const postSideBranches = [...postLaterals, ...postRenewals];
 
   const maxOrder = state.modules.reduce(
     (max, module) => Math.max(max, module.order),
@@ -161,7 +166,7 @@ export function diagnoseMatureFrontier(
 
     const structuralAge = moduleOrdinal - parentOrdinal;
     parentStructuralAges.push(structuralAge);
-    if (module.relation === "lateral") {
+    if (module.relation === "lateral" || module.relation === "renewal") {
       lateralParentStructuralAges.push(structuralAge);
       if (parent.bornAtEvent <= horizon) legacyWoodLateralActivations += 1;
     }
@@ -234,12 +239,13 @@ export function diagnoseMatureFrontier(
     postHorizonModules: postHorizon.length,
     postHorizonContinuations: postContinuations.length,
     postHorizonLaterals: postLaterals.length,
+    postHorizonRenewals: postRenewals.length,
     postHorizonOrderCounts,
     newOrder1Axes,
     legacyWoodLateralActivations,
     legacyWoodLateralFraction:
-      postLaterals.length > 0
-        ? legacyWoodLateralActivations / postLaterals.length
+      postSideBranches.length > 0
+        ? legacyWoodLateralActivations / postSideBranches.length
         : 0,
     medianParentStructuralAge: percentile(parentStructuralAges, 0.5),
     p90ParentStructuralAge: percentile(parentStructuralAges, 0.9),

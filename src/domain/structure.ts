@@ -1,12 +1,22 @@
 import { projectTree } from "./geometry";
 import { keyedRange } from "./random";
-import { pointFrom, segmentToSegmentDistance } from "./spatial";
+import {
+  pointFrom,
+  segmentToSegmentDistance,
+  segmentToSegmentDistance3D,
+} from "./spatial";
+import {
+  projectTreeSpatial,
+  spatialEnd,
+  spatialStart,
+} from "./spatial-geometry";
 import { deriveTreeTraits, type TreeTraits } from "./traits";
 import type {
   GrowthModule,
   GrowthRelation,
   Point,
   ProjectedSegment,
+  ProjectedSpatialSegment,
   TreeState,
 } from "./types";
 
@@ -15,6 +25,9 @@ const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
+const MATURE_STRUCTURE_HORIZON = 1000;
+const MATURE_TIP_STRUCTURAL_WINDOW = 64;
+const MATURE_SIDE_STRUCTURAL_WINDOW = 48;
 
 interface Candidate {
   parent: GrowthModule;
@@ -23,6 +36,7 @@ interface Candidate {
   order: number;
   heading: number;
   length: number;
+  depthDelta: number;
   score: number;
 }
 
@@ -36,13 +50,17 @@ interface Bounds {
 interface GrowthContext {
   segments: ProjectedSegment[];
   projectedById: Map<string, ProjectedSegment>;
+  spatialSegments: ProjectedSpatialSegment[];
+  spatialById: Map<string, ProjectedSpatialSegment>;
   bounds: Bounds;
+  matureReferenceBounds: Bounds;
   continuationParents: Set<string>;
   lateralParents: Set<string>;
   axisModuleCounts: Map<string, number>;
   axisCountsByOrder: Map<number, number>;
   establishedFiveByOrder: Map<number, number>;
   lateralFromAxisCounts: Map<string, number>;
+  modulePositions: Map<string, number>;
   latestAxisModulePositions: Map<string, number>;
   latestLateralFromAxisPositions: Map<string, number>;
   axisTips: ProjectedSegment[];
@@ -77,12 +95,20 @@ function boundsFor(segments: readonly ProjectedSegment[]): Bounds {
 function buildGrowthContext(state: TreeState): GrowthContext {
   const segments = projectTree(state);
   const projectedById = new Map(segments.map((segment) => [segment.id, segment]));
+  const spatialSegments = projectTreeSpatial(state);
+  const spatialById = new Map(
+    spatialSegments.map((segment) => [segment.id, segment]),
+  );
+  const matureReferenceBounds = boundsFor(
+    segments.filter((segment) => segment.bornAtEvent <= MATURE_STRUCTURE_HORIZON),
+  );
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   const continuationParents = new Set<string>();
   const lateralParents = new Set<string>();
   const axisModuleCounts = new Map<string, number>();
   const axisOrderCounts = new Map<number, Map<string, number>>();
   const lateralFromAxisCounts = new Map<string, number>();
+  const modulePositions = new Map<string, number>();
   const latestAxisModulePositions = new Map<string, number>();
   const latestLateralFromAxisPositions = new Map<string, number>();
   const latestFirstOrderModuleByAxis = new Map<string, GrowthModule>();
@@ -93,6 +119,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     const projection = projectedById.get(module.id);
 
     axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);
+    modulePositions.set(module.id, index);
     latestAxisModulePositions.set(module.axisId, index);
 
     if (!axisRootHeadings.has(module.axisId) && projection) {
@@ -111,7 +138,10 @@ function buildGrowthContext(state: TreeState): GrowthContext {
       continuationParents.add(module.parentId);
     }
 
-    if (module.parentId && module.relation === "lateral") {
+    if (
+      module.parentId &&
+      (module.relation === "lateral" || module.relation === "renewal")
+    ) {
       lateralParents.add(module.parentId);
       const parentAxis = moduleById.get(module.parentId)?.axisId;
       if (parentAxis) {
@@ -147,13 +177,17 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   return {
     segments,
     projectedById,
+    spatialSegments,
+    spatialById,
     bounds: boundsFor(segments),
+    matureReferenceBounds,
     continuationParents,
     lateralParents,
     axisModuleCounts,
     axisCountsByOrder,
     establishedFiveByOrder,
     lateralFromAxisCounts,
+    modulePositions,
     latestAxisModulePositions,
     latestLateralFromAxisPositions,
     axisTips,
@@ -258,6 +292,146 @@ function boundsAspect(bounds: Bounds): number {
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const height = Math.max(1, bounds.maxY - bounds.minY);
   return width / height;
+}
+
+function matureDepthHalfSpan(
+  context: GrowthContext,
+  eventIndex: number,
+): number {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return 0;
+  const referenceWidth = Math.max(1,
+    context.matureReferenceBounds.maxX - context.matureReferenceBounds.minX,
+  );
+  return (
+    2 +
+    referenceWidth *
+      0.08 *
+      Math.log2(Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON))
+  );
+}
+
+function insideMatureVolume(
+  context: GrowthContext,
+  eventIndex: number,
+  end: Point,
+  endDepth: number,
+): boolean {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) {
+    return Math.abs(endDepth) <= 1e-12;
+  }
+
+  const ageLog = Math.log2(
+    Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON),
+  );
+  const horizontalScale = 1 + ageLog * 0.18;
+  const verticalScale = 1 + ageLog * 0.14;
+  const reference = context.matureReferenceBounds;
+  const cushion = 6;
+  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);
+
+  return (
+    end.x >= reference.minX * horizontalScale - cushion - 1e-9 &&
+    end.x <= reference.maxX * horizontalScale + cushion + 1e-9 &&
+    end.y >= reference.minY * verticalScale - cushion - 1e-9 &&
+    end.y <= 1e-9 &&
+    Math.abs(endDepth) <= depthHalfSpan + 1e-9
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function candidateDepthDelta(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  parent: GrowthModule,
+  relation: Exclude<GrowthRelation, "origin">,
+  axisId: string,
+  length: number,
+  sideKey = 0,
+): number {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return 0;
+
+  const spatialParent = context.spatialById.get(parent.id);
+  if (!spatialParent) return 0;
+
+  const cap = length * 0.3;
+  let raw: number;
+
+  if (relation === "continuation") {
+    const axisTendency = keyedRange(
+      state.soul,
+      `mechanics:${axisId}:depth-tendency`,
+      -0.18,
+      0.18,
+    ) * length;
+    const drift = keyedRange(
+      state.soul,
+      `structure:${eventIndex}:${parent.id}:continue:depth-drift`,
+      -0.035,
+      0.035,
+    ) * length;
+    raw = parent.restDepth * 0.72 + axisTendency * 0.28 + drift;
+  } else {
+    const sign =
+      keyedRange(
+        state.soul,
+        `structure:${eventIndex}:${parent.id}:${relation}:${sideKey}:depth-side`,
+        -1,
+        1,
+      ) >= 0
+        ? 1
+        : -1;
+    const magnitude = keyedRange(
+      state.soul,
+      `structure:${eventIndex}:${parent.id}:${relation}:${sideKey}:depth-magnitude`,
+      0.12,
+      0.24,
+    );
+    raw = sign * magnitude * length;
+  }
+
+  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);
+  const minimumDelta = -depthHalfSpan - spatialParent.endDepth;
+  const maximumDelta = depthHalfSpan - spatialParent.endDepth;
+  return clamp(raw, Math.max(-cap, minimumDelta), Math.min(cap, maximumDelta));
+}
+
+function proposedSpatialClearance(
+  startDepth: number,
+  endDepth: number,
+  start: Point,
+  end: Point,
+  parentId: string,
+  segments: readonly ProjectedSpatialSegment[],
+): number {
+  let clearance = Number.POSITIVE_INFINITY;
+  const candidateStart = { x: start.x, y: start.y, z: startDepth };
+  const candidateEnd = { x: end.x, y: end.y, z: endDepth };
+
+  for (const segment of segments) {
+    if (segment.id === parentId || segment.parentId === parentId) continue;
+    clearance = Math.min(
+      clearance,
+      segmentToSegmentDistance3D(
+        candidateStart,
+        candidateEnd,
+        spatialStart(segment),
+        spatialEnd(segment),
+      ),
+    );
+    if (clearance === 0) return 0;
+  }
+
+  return Number.isFinite(clearance)
+    ? clearance
+    : Math.hypot(
+        end.x - start.x,
+        end.y - start.y,
+        endDepth - startDepth,
+      );
 }
 
 function violatesBroadCrownEnvelope(
@@ -532,25 +706,38 @@ function scoreCandidate(
   traits: TreeTraits,
 ): Candidate | null {
   const parent = context.projectedById.get(candidate.parent.id);
-  if (!parent) return null;
+  const spatialParent = context.spatialById.get(candidate.parent.id);
+  if (!parent || !spatialParent) return null;
 
   const start = parent.end;
   const end = pointFrom(start, candidate.heading, candidate.length);
+  const endDepth = spatialParent.endDepth + candidate.depthDelta;
 
   if (!Number.isFinite(end.x) || !Number.isFinite(end.y) || end.y > 0) {
     return null;
   }
   if (candidate.length <= 0.5) return null;
+  if (!insideMatureVolume(context, eventIndex, end, endDepth)) return null;
   if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {
     return null;
   }
 
-  const clearance = proposedClearance(
-    start,
-    end,
-    candidate.parent.id,
-    context.segments,
-  );
+  const clearance =
+    eventIndex <= MATURE_STRUCTURE_HORIZON
+      ? proposedClearance(
+          start,
+          end,
+          candidate.parent.id,
+          context.segments,
+        )
+      : proposedSpatialClearance(
+          spatialParent.endDepth,
+          endDepth,
+          start,
+          end,
+          candidate.parent.id,
+          context.spatialSegments,
+        );
   if (clearance < MIN_STRUCTURAL_CLEARANCE) return null;
 
   const parentAge = state.growthIndex - candidate.parent.bornAtEvent;
@@ -594,6 +781,13 @@ function continuationCandidates(
     if (parent.order > MAX_ORDER) continue;
     if (context.continuationParents.has(parent.id)) continue;
 
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
+      if (latestAxisPosition === undefined) continue;
+      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;
+      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;
+    }
+
     const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
 
@@ -625,6 +819,15 @@ function continuationCandidates(
       parent.order,
       traits,
     );
+    const depthDelta = candidateDepthDelta(
+      state,
+      context,
+      eventIndex,
+      parent,
+      "continuation",
+      parent.axisId,
+      length,
+    );
 
     for (const offset of offsets) {
       const heading = Math.max(-82, Math.min(82, baseHeading + offset));
@@ -639,6 +842,7 @@ function continuationCandidates(
           order: parent.order,
           heading,
           length,
+          depthDelta,
         },
         traits,
       );
@@ -662,6 +866,14 @@ function lateralCandidates(
     if (context.lateralParents.has(parent.id)) continue;
     if (!context.continuationParents.has(parent.id)) continue;
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
+
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      if (parent.order === 0) continue;
+      const parentPosition = context.modulePositions.get(parent.id);
+      if (parentPosition === undefined) continue;
+      const structuralAge = state.modules.length - 1 - parentPosition;
+      if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;
+    }
 
     const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
     if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
@@ -692,6 +904,16 @@ function lateralCandidates(
     for (const side of [-1, 1] as const) {
       const rawHeading = projection.heading + side * divergence;
       const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));
+      const depthDelta = candidateDepthDelta(
+        state,
+        context,
+        eventIndex,
+        parent,
+        "lateral",
+        `axis-${eventIndex}`,
+        length,
+        side,
+      );
       const scored = scoreCandidate(
         state,
         context,
@@ -703,6 +925,85 @@ function lateralCandidates(
           order,
           heading,
           length,
+          depthDelta,
+        },
+        traits,
+      );
+      if (scored) result.push(scored);
+    }
+  }
+
+  return result;
+}
+
+function renewalCandidates(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  traits: TreeTraits,
+): Candidate[] {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];
+
+  const result: Candidate[] = [];
+  for (const parent of state.modules) {
+    if (parent.order !== MAX_ORDER) continue;
+    if (context.lateralParents.has(parent.id)) continue;
+    if (!context.continuationParents.has(parent.id)) continue;
+    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
+
+    const parentPosition = context.modulePositions.get(parent.id);
+    if (parentPosition === undefined) continue;
+    const structuralAge = state.modules.length - 1 - parentPosition;
+    if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;
+
+    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
+    if (axisModules < minimumAxisModulesBeforeLateral(MAX_ORDER, traits)) continue;
+
+    const projection = context.projectedById.get(parent.id);
+    if (!projection) continue;
+
+    const divergence = lateralDivergence(
+      state,
+      eventIndex,
+      parent,
+      MAX_ORDER,
+      traits,
+    );
+    const length = candidateLength(
+      state,
+      context,
+      eventIndex,
+      parent,
+      "renewal",
+      MAX_ORDER,
+      traits,
+    );
+
+    for (const side of [-1, 1] as const) {
+      const rawHeading = projection.heading + side * divergence;
+      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));
+      const depthDelta = candidateDepthDelta(
+        state,
+        context,
+        eventIndex,
+        parent,
+        "renewal",
+        `axis-${eventIndex}`,
+        length,
+        side,
+      );
+      const scored = scoreCandidate(
+        state,
+        context,
+        eventIndex,
+        {
+          parent,
+          relation: "renewal",
+          axisId: `axis-${eventIndex}`,
+          order: MAX_ORDER,
+          heading,
+          length,
+          depthDelta,
         },
         traits,
       );
@@ -761,6 +1062,11 @@ export function growStructuralEvent(
     candidates = candidates.concat(
       lateralCandidates(state, context, eventIndex, traits),
     );
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      candidates = candidates.concat(
+        renewalCandidates(state, context, eventIndex, traits),
+      );
+    }
   } else {
     candidates = candidates.filter(
       (candidate) =>
@@ -774,7 +1080,8 @@ export function growStructuralEvent(
       b.score - a.score ||
       a.order - b.order ||
       a.parent.id.localeCompare(b.parent.id) ||
-      a.heading - b.heading,
+      a.heading - b.heading ||
+      a.depthDelta - b.depthDelta,
   );
 
   const winner = candidates[0];
@@ -792,6 +1099,6 @@ export function growStructuralEvent(
     bornAtEvent: eventIndex,
     restTurn: winner.heading - parentProjection.heading,
     restLength: winner.length,
-    restDepth: 0,
+    restDepth: winner.depthDelta,
   };
 }

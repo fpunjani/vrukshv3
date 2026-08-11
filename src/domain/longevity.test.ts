@@ -7,6 +7,7 @@ import {
 } from "./canopy-lod";
 import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
 import { diagnoseFoliage } from "./foliage-diagnostics";
+import { diagnoseSpatialWood } from "./spatial-diagnostics";
 import { applyEntry, replayEntries } from "./growth";
 import type { Entry, TreeState } from "./types";
 
@@ -53,9 +54,12 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
 
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   expect(
-    state.modules.every((module) => module.restDepth === 0),
-    "Phase B must preserve the existing planar history exactly",
+    state.modules
+      .filter((module) => module.bornAtEvent <= 1000)
+      .every((module) => module.restDepth === 0),
+    "accepted <=1k structure must remain exactly depth-zero",
   ).toBe(true);
+  expect(state.modules.every((module) => Number.isFinite(module.restDepth))).toBe(true);
   let invalidHosts = 0;
   for (const leaf of state.leaves) {
     const host = moduleById.get(leaf.attachment.moduleId);
@@ -65,12 +69,29 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
 
   const structure = diagnoseTree(state);
   expect(structure.invariantErrors).toEqual([]);
-  expect(structure.crossings).toBe(0);
   expect(structure.belowGroundCount).toBe(0);
   expect(structure.maxChildren).toBeLessThanOrEqual(2);
   expect(Number.isFinite(structure.width)).toBe(true);
   expect(Number.isFinite(structure.height)).toBe(true);
   expect(Number.isFinite(structure.aspectRatio)).toBe(true);
+  expect(
+    state.modules.reduce((max, module) => Math.max(max, module.order), 0),
+  ).toBeLessThanOrEqual(4);
+
+  const spatial = diagnoseSpatialWood(state);
+  expect(spatial.unsafeSpatialPairs).toBe(0);
+  expect(Number.isFinite(spatial.maxAbsDepth)).toBe(true);
+  if (expectedEntries > 1000) {
+    expect(spatial.nonZeroDepthModules).toBeGreaterThan(0);
+    const reference = historicalPrefix(state, 1000);
+    const referenceWidth = diagnoseTree(reference).width;
+    const allowedDepth =
+      2 +
+      Math.max(1, referenceWidth) *
+        0.08 *
+        Math.log2(expectedEntries / 1000);
+    expect(spatial.maxAbsDepth).toBeLessThanOrEqual(allowedDepth + 1e-6);
+  }
 
   expect(state.modules.length).toBeGreaterThan(50);
   expect(state.modules.length).toBeLessThan(expectedEntries / 4);
@@ -148,6 +169,10 @@ describe("V3 long-life organism", () => {
       validateLongHistory(at3000, 3000);
       validateLongHistory(at10000, 10000);
       validateLongHistory(at30000, 30000);
+      expect(
+        at30000.modules.some((module) => module.relation === "renewal"),
+        "30k organism should exercise mature spatial renewal",
+      ).toBe(true);
 
       expectBucketPrefixStable(at3000, at10000, "module");
       expectBucketPrefixStable(at3000, at10000, "axis");

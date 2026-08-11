@@ -1,5 +1,12 @@
 import { pointFrom } from "./spatial";
-import type { GrowthModule, Point, ProjectedSegment, TreeState } from "./types";
+import { projectTreeSpatial } from "./spatial-geometry";
+import type {
+  GrowthModule,
+  Point,
+  Point3D,
+  ProjectedSegment,
+  TreeState,
+} from "./types";
 
 const ROOT: Point = { x: 0, y: 0 };
 
@@ -10,6 +17,8 @@ export interface ProjectedCurve extends ProjectedSegment {
   endTangent: number;
   startThickness: number;
   endThickness: number;
+  startDepth: number;
+  endDepth: number;
 }
 
 function normalizeDelta(degrees: number): number {
@@ -119,7 +128,7 @@ function curveHandleLength(
   atStart: boolean,
 ): number {
   const baseScale = atStart
-    ? relation === "lateral"
+    ? relation === "lateral" || relation === "renewal"
       ? 0.17
       : 0.24
     : 0.24;
@@ -130,6 +139,9 @@ function curveHandleLength(
 
 export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
   const segments = projectTree(state);
+  const spatialById = new Map(
+    projectTreeSpatial(state).map((segment) => [segment.id, segment]),
+  );
   const segmentById = new Map(segments.map((segment) => [segment.id, segment]));
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   const continuationByParent = new Map<string, string>();
@@ -171,7 +183,10 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
     let startTangent = segment.heading;
     if (module.relation === "continuation" && parentEndTangent !== undefined) {
       startTangent = parentEndTangent;
-    } else if (module.relation === "lateral" && parentSegment) {
+    } else if (
+      (module.relation === "lateral" || module.relation === "renewal") &&
+      parentSegment
+    ) {
       startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);
     }
 
@@ -196,11 +211,19 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       startThickness = segment.thickness * 1.14;
     } else if (module.relation === "continuation" && parentCurve) {
       startThickness = parentCurve.endThickness;
-    } else if (module.relation === "lateral" && parentCurve) {
+    } else if (
+      (module.relation === "lateral" || module.relation === "renewal") &&
+      parentCurve
+    ) {
       startThickness = Math.min(
         segment.thickness * 1.05,
         parentCurve.endThickness * 0.72,
       );
+    }
+
+    const spatial = spatialById.get(segment.id);
+    if (!spatial) {
+      throw new Error(`Projected curve ${segment.id} has no spatial segment`);
     }
 
     const curve: ProjectedCurve = {
@@ -211,6 +234,8 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       endTangent,
       startThickness,
       endThickness: Math.min(startThickness, endThickness),
+      startDepth: spatial.startDepth,
+      endDepth: spatial.endDepth,
     };
     curves.set(curve.id, curve);
     result.push(curve);
@@ -270,4 +295,23 @@ export function outlineProjectedCurve(curve: ProjectedCurve, steps = 12): Point[
   }
 
   return left.concat(right.reverse());
+}
+
+
+export function sampleProjectedSpatialCurve(
+  curve: ProjectedCurve,
+  steps = 8,
+): Point3D[] {
+  const count = Math.max(1, Math.floor(steps));
+  const points: Point3D[] = [];
+  for (let index = 0; index <= count; index += 1) {
+    const t = index / count;
+    const point = curvePoint(curve, t);
+    points.push({
+      x: point.x,
+      y: point.y,
+      z: curve.startDepth + (curve.endDepth - curve.startDepth) * t,
+    });
+  }
+  return points;
 }

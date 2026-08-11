@@ -1,6 +1,15 @@
-import { projectTree, projectTreeCurves, sampleProjectedCurve } from "./geometry";
-import { properIntersection, segmentToSegmentDistance } from "./spatial";
-import type { GrowthModule, Point, TreeState } from "./types";
+import {
+  projectTree,
+  projectTreeCurves,
+  sampleProjectedCurve,
+  sampleProjectedSpatialCurve,
+} from "./geometry";
+import {
+  properIntersection,
+  segmentToSegmentDistance,
+  segmentToSegmentDistance3D,
+} from "./spatial";
+import type { GrowthModule, Point, Point3D, TreeState } from "./types";
 
 export interface TreeDiagnostics {
   moduleCount: number;
@@ -19,6 +28,7 @@ export interface TreeDiagnostics {
 
 export interface CurvedWoodDiagnostics {
   curveCrossings: number;
+  projectedCurveCrossings: number;
   crowdedPairs: number;
   minimumNonLocalClearance: number;
   belowGroundSamples: number;
@@ -42,6 +52,7 @@ function validateHistory(state: TreeState): string[] {
   const byId = new Map<string, GrowthModule>();
   const leafIds = new Set<string>();
   const relationByParent = new Map<string, Set<string>>();
+  const sideBranchParents = new Set<string>();
 
   if (state.schemaVersion !== 3) {
     errors.push(`unsupported schema version ${String(state.schemaVersion)}`);
@@ -96,8 +107,25 @@ function validateHistory(state: TreeState): string[] {
         if (module.order !== parent.order + 1) {
           errors.push(`lateral ${module.id} must increment branch order`);
         }
+      } else if (module.relation === "renewal") {
+        if (module.axisId === parent.axisId) {
+          errors.push(`renewal ${module.id} must create a new axis`);
+        }
+        if (module.order !== parent.order || module.order !== 4) {
+          errors.push(`renewal ${module.id} must preserve fine order 4`);
+        }
+        if (module.bornAtEvent <= 1000) {
+          errors.push(`renewal ${module.id} cannot predate mature horizon`);
+        }
       } else {
         errors.push(`non-root module ${module.id} cannot have origin relation`);
+      }
+
+      if (module.relation === "lateral" || module.relation === "renewal") {
+        if (sideBranchParents.has(module.parentId)) {
+          errors.push(`parent ${module.parentId} has more than one side-branch child`);
+        }
+        sideBranchParents.add(module.parentId);
       }
 
       const relations = relationByParent.get(module.parentId) ?? new Set<string>();
@@ -227,6 +255,27 @@ function polylineClearance(a: readonly Point[], b: readonly Point[]): number {
   return minimum;
 }
 
+function polylineClearance3D(
+  a: readonly Point3D[],
+  b: readonly Point3D[],
+): number {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let ai = 0; ai < a.length - 1; ai += 1) {
+    for (let bi = 0; bi < b.length - 1; bi += 1) {
+      minimum = Math.min(
+        minimum,
+        segmentToSegmentDistance3D(
+          a[ai],
+          a[ai + 1],
+          b[bi],
+          b[bi + 1],
+        ),
+      );
+    }
+  }
+  return minimum;
+}
+
 function isLocalJunction(
   a: { id: string; parentId: string | null },
   b: { id: string; parentId: string | null },
@@ -248,8 +297,15 @@ export function diagnoseCurvedWood(
   const sampled = new Map(
     curves.map((curve) => [curve.id, sampleProjectedCurve(curve, steps)]),
   );
+  const sampledSpatial = new Map(
+    curves.map((curve) => [
+      curve.id,
+      sampleProjectedSpatialCurve(curve, steps),
+    ]),
+  );
 
   let curveCrossings = 0;
+  let projectedCurveCrossings = 0;
   let crowdedPairs = 0;
   let minimumNonLocalClearance = Number.POSITIVE_INFINITY;
   let belowGroundSamples = 0;
@@ -277,7 +333,7 @@ export function diagnoseCurvedWood(
       continuationDiameterErrors += 1;
     }
     if (
-      module?.relation === "lateral" &&
+      (module?.relation === "lateral" || module?.relation === "renewal") &&
       parent &&
       curve.startThickness >= parent.endThickness - 1e-9
     ) {
@@ -294,16 +350,20 @@ export function diagnoseCurvedWood(
 
       const bPoints = sampled.get(b.id) ?? [];
       if (polylineCrosses(aPoints, bPoints)) {
-        curveCrossings += 1;
+        projectedCurveCrossings += 1;
       }
-      const clearance = polylineClearance(aPoints, bPoints);
+      const aSpatial = sampledSpatial.get(a.id) ?? [];
+      const bSpatial = sampledSpatial.get(b.id) ?? [];
+      const clearance = polylineClearance3D(aSpatial, bSpatial);
       minimumNonLocalClearance = Math.min(minimumNonLocalClearance, clearance);
+      if (clearance < 1e-6) curveCrossings += 1;
       if (clearance < 0.65) crowdedPairs += 1;
     }
   }
 
   return {
     curveCrossings,
+    projectedCurveCrossings,
     crowdedPairs,
     minimumNonLocalClearance: Number.isFinite(minimumNonLocalClearance)
       ? minimumNonLocalClearance
