@@ -35,14 +35,17 @@ describe("V3 growth contract", () => {
     );
   });
 
-  it("uses entry ID as the stable tie-breaker when timestamps match", () => {
+  it("uses locale-independent entry ID ordering when timestamps match", () => {
+    // Raw UTF-16 code-unit order is z < ä. Locale collation commonly treats ä
+    // near a, which is exactly why durable procedural history must not use the
+    // host machine's locale as a tie-breaker.
     const history: Entry[] = [
-      { id: "b", text: "B", createdAt: 10, status: "open" },
-      { id: "a", text: "A", createdAt: 10, status: "open" },
-      { id: "c", text: "C", createdAt: 11, status: "open" },
+      { id: "ä", text: "Umlaut", createdAt: 10, status: "open" },
+      { id: "z", text: "Z", createdAt: 10, status: "open" },
+      { id: "zz", text: "Later", createdAt: 11, status: "open" },
     ];
     const replayed = replayEntries("same-time-order", history);
-    expect(replayed.leaves.map((leaf) => leaf.entryId)).toEqual(["a", "b", "c"]);
+    expect(replayed.leaves.map((leaf) => leaf.entryId)).toEqual(["z", "ä", "zz"]);
 
     let live = createTree("same-time-order");
     live = applyEntry(live, history[1]);
@@ -53,10 +56,10 @@ describe("V3 growth contract", () => {
 
   it("rejects a same-timestamp live append that belongs before the current tip", () => {
     const state = replayEntries("same-time-reject", [
-      { id: "b", text: "B", createdAt: 10, status: "open" },
+      { id: "ä", text: "Umlaut", createdAt: 10, status: "open" },
     ]);
     expect(() =>
-      applyEntry(state, { id: "a", text: "A", createdAt: 10, status: "open" }),
+      applyEntry(state, { id: "z", text: "Z", createdAt: 10, status: "open" }),
     ).toThrow(/canonical order/i);
   });
 
