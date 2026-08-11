@@ -493,7 +493,10 @@ function axisLightTarget(
 
 function continuationTropismStrength(order: number, axisModules: number): number {
   if (order === 0) return 0.16;
-  if (order === 1) return Math.min(0.16, 0.08 + axisModules * 0.01);
+  if (order === 1) {
+    if (axisModules < 6) return 0;
+    return Math.min(0.18, 0.12 + (axisModules - 6) * 0.025);
+  }
   if (order === 2) return 0.13;
   if (order === 3) return 0.16;
   return 0.18;
