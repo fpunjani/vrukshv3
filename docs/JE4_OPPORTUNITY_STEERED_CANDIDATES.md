@@ -1,6 +1,6 @@
 # JE4 — Opportunity-Steered Mature Continuation Candidates
 
-Status: experimental candidate-generation checkpoint on top of JE3. Do not merge to `main`.
+Status: experimental candidate-generation checkpoint on top of JE3. **Reachability/safety PASS; mature morphology FAIL. Do not merge to `main`.**
 
 ## Evidence from JE3
 
@@ -15,7 +15,7 @@ By 30k in every measured soul:
 - continuation heading span was normally only about 5–8°;
 - legal candidate pools had often collapsed to single digits.
 
-Therefore mature hollow-crown failure is now primarily a **candidate reachable-volume failure**. Score tuning cannot select an endpoint the generator never offers.
+Therefore mature hollow-crown failure had become primarily a **candidate reachable-volume failure**. Score tuning could not select an endpoint the generator never offered.
 
 ## JE4 hypothesis
 
@@ -44,9 +44,13 @@ The original candidates remain available. JE4 adds at most two continuation cand
 
 ### Implementation-cost invariant
 
-The set of currently uncolonized mature attractors and normalized terminal tips is computed **once per structural event**, then reused while each eligible parent selects its nearest two targets. It must not be recomputed independently for every parent. This is semantically identical to the first JE4 implementation but avoids turning a bounded candidate experiment into avoidable repeated mature-history work.
+The set of currently uncolonized mature attractors and normalized terminal tips is computed **once per structural event**, then reused while each eligible parent selects its nearest two targets. It must not be recomputed independently for every parent.
 
-## Gate 1 result — reachable volume PASS
+Mature-frontier derivation is also skipped entirely during the accepted <=1k phase. Mature machinery must have zero cost before the horizon if it cannot affect a young-tree decision.
+
+Experimental regression tests were tightened so narrow semantic tests no longer duplicate four-soul 3k/30k replay sweeps already covered by dedicated measurement gates. The production-quality 128-soul <=1k and 30k longevity limits were **not** raised.
+
+## Gate 1 — reachable volume PASS
 
 The exact JE3 measurement was rerun on generated JE4 trees across ash-01..04.
 
@@ -57,15 +61,39 @@ At 30k, improvable-attractor fraction rose from **0 in every JE3 soul** to appro
 - ash-03: 0.042 (meaningful: 0.024)
 - ash-04: 0.217 (meaningful: 0.109)
 
-Continuation parents now average roughly **2.4–2.9 distinct depth options** in the sampled 30k events instead of exactly one. The mean legal candidate pool remains bounded at roughly 10–23 candidates across those 30k samples.
+Continuation parents now average roughly **2.4–2.9 distinct depth options** in sampled 30k events instead of exactly one. Mean legal candidate count remains bounded at roughly 10–23 across those samples.
 
 This proves candidate-space reachability was a real limiting mechanism and JE4 materially restores 3D agency.
 
-The same data also shows that the final-score winner is usually **not** the highest-opportunity candidate. That is not being tuned inside JE4; score composition remains locked until the technical and visual gates establish whether the new reachable options are useful in the actual organism.
+A second signal is equally important: the final-score winner is usually **not** the highest-opportunity candidate. That is deliberately not tuned inside JE4.
+
+## Gate 2 — technical / spatial safety PASS
+
+The generated JE4 organism passed the dedicated four-soul 3k/10k/30k frontier + spatial audit:
+
+- all accepted first-order scaffold lineages remain represented at every checkpoint;
+- selected mature continuation frontier stays only about 16–20 tips;
+- `matureDepthFraction = 1` throughout measured post-1k wood;
+- every projected crossing remains depth-separated;
+- `unsafeSpatialPairs = 0` everywhere;
+- minimum non-local XYZ clearance stays above approximately 2.0;
+- 30k far LOD remains comfortably inside the existing budget (about 571–574 in the measured souls).
+
+The final clean branch also passed the unchanged normal test suite and production build after removing mature-only work from the <=1k path and removing redundant experimental test replay cost. No timeout or LOD ceiling was loosened.
+
+## Gate 3 — browser morphology FAIL
+
+The exact final browser artifact shows that restored candidate reachability **does not yet produce a believable mature crown**.
+
+At 3k the organism remains plausible. By 10k the upper wood increasingly organizes into a broad perimeter/roof around a large interior void. By 30k, the steering proposals produce a stronger top/perimeter network but the dominant projected negative space is still a very large hollow U/M-shaped cavity.
+
+Compared with JE1/JE2, JE4 changes upper routing and gives the solver legal 3D agency, but it does not materially convert that agency into persistent interior crown occupation. It is therefore not a mature morphology acceptance candidate.
+
+This is useful failure, not a reason to remove JE4's reachability work: JE4 established that useful 3D candidates can exist safely and cheaply.
 
 ## Locked layers
 
-JE4 must not change:
+JE4 did not change:
 
 - <=1k tree/topology/XY or zero-depth behavior;
 - schema V3 / restDepth semantics;
@@ -81,25 +109,24 @@ JE4 must not change:
 - structural cadence;
 - foliage, LOD, seasons, motion, or UI.
 
-## Acceptance order
+## Conclusion / next causal question
 
-### Gate 1 — Reachability ✅
-Passed as documented above.
+Do **not** widen angles again and do **not** add more attractors.
 
-### Gate 2 — Existing technical contracts
-Without loosening limits:
-- full tests/build;
-- 30k longevity/runtime;
-- LOD budgets;
-- scaffold reachability;
-- unsafe XYZ pairs = 0;
-- projected crossings remain depth-separated;
-- minimum non-local XYZ clearance remains safe.
+JE3 showed that before steering there were no good candidates. JE4 now shows that good candidates exist, but the final-score winner usually does not capture the best available 3D opportunity and the browser crown remains hollow.
 
-### Gate 3 — Browser morphology
-At 10k/30k, compared with JE1/JE2:
-- crown interior / projected centre should gain meaningful structural occupancy;
-- major scaffold hierarchy and soul asymmetry must remain legible;
-- reject central knots, spherical fuzz, spaghetti, forced radial symmetry, or erratic zig-zag steering.
+The next checkpoint must inspect **score composition**, not guess at a multiplier. Measure the actual score components for the final winner versus the highest-opportunity legal candidate at real mature events:
 
-If JE4 makes the attraction field reachable but opportunity-positive candidates still consistently lose and the visual stays hollow, only then isolate score composition in a later experiment.
+- base vigor;
+- space / XYZ clearance contribution;
+- crown-envelope contribution;
+- 3D opportunity contribution;
+- first-order side term;
+- architecture term;
+- recency term;
+- deterministic jitter;
+- total final score.
+
+Also compute the smallest hypothetical opportunity weight at which the best-opportunity candidate would overtake the actual winner. This tells us whether opportunity is being suppressed by one specific architectural term or is simply too small relative to the whole score budget.
+
+Only after that measurement should a JE5 scoring experiment change exactly one composition rule. Candidate generation, frontier, geometry, envelopes, and opportunity field should remain frozen.
