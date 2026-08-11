@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { diagnoseTree } from "./diagnostics";
 import { applyEntry, createTree, replayEntries } from "./growth";
+import { diagnoseMorphology } from "./morphology";
 import type { Entry, TreeState } from "./types";
 
 const MILESTONES = new Set([1, 3, 10, 30, 100, 300, 1000]);
@@ -10,6 +11,14 @@ const HISTORY: Entry[] = Array.from({ length: 1000 }, (_, index) => ({
   createdAt: index,
   status: "open" as const,
 }));
+
+interface MorphologySample {
+  trunkModules: number;
+  lateralFraction: number;
+  strongScaffolds: number;
+  longestScaffold: number;
+  middleAspect: number;
+}
 
 function milestoneStates(soul: string): Map<number, TreeState> {
   const snapshots = new Map<number, TreeState>();
@@ -23,10 +32,37 @@ function milestoneStates(soul: string): Map<number, TreeState> {
   return snapshots;
 }
 
+function percentile(values: readonly number[], fraction: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const index = Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * fraction));
+  return sorted[index];
+}
+
+function summarize(samples: readonly MorphologySample[]) {
+  const field = (key: keyof MorphologySample) => samples.map((sample) => sample[key]);
+  const summary = (values: readonly number[]) => ({
+    min: Math.min(...values),
+    p10: percentile(values, 0.1),
+    median: percentile(values, 0.5),
+    p90: percentile(values, 0.9),
+    max: Math.max(...values),
+  });
+  return {
+    trunkModules: summary(field("trunkModules")),
+    lateralFraction: summary(field("lateralFraction")),
+    strongScaffolds: summary(field("strongScaffolds")),
+    longestScaffold: summary(field("longestScaffold")),
+    middleAspect: summary(field("middleAspect")),
+  };
+}
+
 describe("V3 structural diagnostics", () => {
   it(
     "keeps 128 souls valid, crossing-free, append-only, and structurally developed",
     () => {
+      const morphologyByMilestone = new Map<number, MorphologySample[]>();
+
       for (let soulIndex = 0; soulIndex < 128; soulIndex += 1) {
         const soul = `diagnostic-soul-${soulIndex}`;
         const snapshots = milestoneStates(soul);
@@ -45,6 +81,19 @@ describe("V3 structural diagnostics", () => {
           expect(Number.isFinite(diagnostics.width)).toBe(true);
           expect(Number.isFinite(diagnostics.height)).toBe(true);
           expect(Number.isFinite(diagnostics.aspectRatio)).toBe(true);
+
+          if (milestone === 100 || milestone === 300 || milestone === 1000) {
+            const morphology = diagnoseMorphology(state);
+            const samples = morphologyByMilestone.get(milestone) ?? [];
+            samples.push({
+              trunkModules: morphology.trunkModules,
+              lateralFraction: morphology.lateralModuleFraction,
+              strongScaffolds: morphology.strongOrder1Axes,
+              longestScaffold: morphology.maxOrder1Modules,
+              middleAspect: morphology.middleCrownAspect,
+            });
+            morphologyByMilestone.set(milestone, samples);
+          }
 
           if (milestone === 100) {
             expect(diagnostics.terminalCount, `${soul} @ 100 terminal tips`).toBeGreaterThanOrEqual(2);
@@ -69,6 +118,18 @@ describe("V3 structural diagnostics", () => {
           previous = state;
         }
       }
+
+      console.log(
+        "MORPHOLOGY_128",
+        JSON.stringify(
+          Object.fromEntries(
+            [...morphologyByMilestone.entries()].map(([milestone, samples]) => [
+              milestone,
+              summarize(samples),
+            ]),
+          ),
+        ),
+      );
     },
     30_000,
   );
