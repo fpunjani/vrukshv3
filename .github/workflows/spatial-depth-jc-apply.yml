@@ -1,0 +1,467 @@
+name: Apply Spatial Mature JC
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-jc
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage first depth-enabled mature growth JC'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-spatial-depth-jc
+
+      - name: Apply depth-enabled mature growth
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 marker, found {count}')
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # structure.ts
+          # ------------------------------------------------------------------
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+
+          text = once(
+              text,
+              'import { pointFrom, segmentToSegmentDistance } from "./spatial";\n',
+              'import {\n  pointFrom,\n  segmentToSegmentDistance,\n  segmentToSegmentDistance3D,\n} from "./spatial";\nimport {\n  projectTreeSpatial,\n  spatialEnd,\n  spatialStart,\n} from "./spatial-geometry";\n',
+              'structure spatial imports',
+          )
+          text = once(
+              text,
+              '  Point,\n  ProjectedSegment,\n  TreeState,\n',
+              '  Point,\n  ProjectedSegment,\n  ProjectedSpatialSegment,\n  TreeState,\n',
+              'structure spatial type import',
+          )
+          text = once(
+              text,
+              'const HARD_MATURE_ASPECT = 1.02;\n',
+              'const HARD_MATURE_ASPECT = 1.02;\nconst MATURE_STRUCTURE_HORIZON = 1000;\nconst MATURE_TIP_STRUCTURAL_WINDOW = 64;\nconst MATURE_SIDE_STRUCTURAL_WINDOW = 48;\n',
+              'mature constants',
+          )
+          text = once(
+              text,
+              '  length: number;\n  score: number;\n',
+              '  length: number;\n  depthDelta: number;\n  score: number;\n',
+              'candidate depth field',
+          )
+          text = once(
+              text,
+              '  segments: ProjectedSegment[];\n  projectedById: Map<string, ProjectedSegment>;\n  bounds: Bounds;\n',
+              '  segments: ProjectedSegment[];\n  projectedById: Map<string, ProjectedSegment>;\n  spatialSegments: ProjectedSpatialSegment[];\n  spatialById: Map<string, ProjectedSpatialSegment>;\n  bounds: Bounds;\n  matureReferenceBounds: Bounds;\n',
+              'context spatial fields',
+          )
+          text = once(
+              text,
+              '  lateralFromAxisCounts: Map<string, number>;\n  latestAxisModulePositions: Map<string, number>;\n',
+              '  lateralFromAxisCounts: Map<string, number>;\n  modulePositions: Map<string, number>;\n  latestAxisModulePositions: Map<string, number>;\n',
+              'context module positions field',
+          )
+          text = once(
+              text,
+              '  const segments = projectTree(state);\n  const projectedById = new Map(segments.map((segment) => [segment.id, segment]));\n',
+              '  const segments = projectTree(state);\n  const projectedById = new Map(segments.map((segment) => [segment.id, segment]));\n  const spatialSegments = projectTreeSpatial(state);\n  const spatialById = new Map(\n    spatialSegments.map((segment) => [segment.id, segment]),\n  );\n  const matureReferenceBounds = boundsFor(\n    segments.filter((segment) => segment.bornAtEvent <= MATURE_STRUCTURE_HORIZON),\n  );\n',
+              'build spatial projections',
+          )
+          text = once(
+              text,
+              '  const lateralFromAxisCounts = new Map<string, number>();\n  const latestAxisModulePositions = new Map<string, number>();\n',
+              '  const lateralFromAxisCounts = new Map<string, number>();\n  const modulePositions = new Map<string, number>();\n  const latestAxisModulePositions = new Map<string, number>();\n',
+              'module positions map',
+          )
+          text = once(
+              text,
+              '    axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);\n    latestAxisModulePositions.set(module.axisId, index);\n',
+              '    axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);\n    modulePositions.set(module.id, index);\n    latestAxisModulePositions.set(module.axisId, index);\n',
+              'record module positions',
+          )
+          text = once(
+              text,
+              '    if (module.parentId && module.relation === "lateral") {\n',
+              '    if (\n      module.parentId &&\n      (module.relation === "lateral" || module.relation === "renewal")\n    ) {\n',
+              'renewal side slot context',
+          )
+          text = once(
+              text,
+              '    segments,\n    projectedById,\n    bounds: boundsFor(segments),\n',
+              '    segments,\n    projectedById,\n    spatialSegments,\n    spatialById,\n    bounds: boundsFor(segments),\n    matureReferenceBounds,\n',
+              'return spatial context',
+          )
+          text = once(
+              text,
+              '    lateralFromAxisCounts,\n    latestAxisModulePositions,\n',
+              '    lateralFromAxisCounts,\n    modulePositions,\n    latestAxisModulePositions,\n',
+              'return module positions',
+          )
+
+          # Mature XY/Z envelopes and depth mechanics.
+          marker = 'function violatesBroadCrownEnvelope(\n'
+          helper = '''function matureDepthHalfSpan(\n  context: GrowthContext,\n  eventIndex: number,\n): number {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return 0;\n  const referenceWidth = Math.max(1,\n    context.matureReferenceBounds.maxX - context.matureReferenceBounds.minX,\n  );\n  return (\n    2 +\n    referenceWidth *\n      0.08 *\n      Math.log2(Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON))\n  );\n}\n\nfunction insideMatureVolume(\n  context: GrowthContext,\n  eventIndex: number,\n  end: Point,\n  endDepth: number,\n): boolean {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) {\n    return Math.abs(endDepth) <= 1e-12;\n  }\n\n  const ageLog = Math.log2(\n    Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON),\n  );\n  const horizontalScale = 1 + ageLog * 0.18;\n  const verticalScale = 1 + ageLog * 0.14;\n  const reference = context.matureReferenceBounds;\n  const cushion = 6;\n  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);\n\n  return (\n    end.x >= reference.minX * horizontalScale - cushion - 1e-9 &&\n    end.x <= reference.maxX * horizontalScale + cushion + 1e-9 &&\n    end.y >= reference.minY * verticalScale - cushion - 1e-9 &&\n    end.y <= 1e-9 &&\n    Math.abs(endDepth) <= depthHalfSpan + 1e-9\n  );\n}\n\nfunction clamp(value: number, min: number, max: number): number {\n  return Math.max(min, Math.min(max, value));\n}\n\nfunction candidateDepthDelta(\n  state: TreeState,\n  context: GrowthContext,\n  eventIndex: number,\n  parent: GrowthModule,\n  relation: Exclude<GrowthRelation, "origin">,\n  axisId: string,\n  length: number,\n  sideKey = 0,\n): number {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return 0;\n\n  const spatialParent = context.spatialById.get(parent.id);\n  if (!spatialParent) return 0;\n\n  const cap = length * 0.3;\n  let raw: number;\n\n  if (relation === "continuation") {\n    const axisTendency = keyedRange(\n      state.soul,\n      `mechanics:${axisId}:depth-tendency`,\n      -0.18,\n      0.18,\n    ) * length;\n    const drift = keyedRange(\n      state.soul,\n      `structure:${eventIndex}:${parent.id}:continue:depth-drift`,\n      -0.035,\n      0.035,\n    ) * length;\n    raw = parent.restDepth * 0.72 + axisTendency * 0.28 + drift;\n  } else {\n    const sign =\n      keyedRange(\n        state.soul,\n        `structure:${eventIndex}:${parent.id}:${relation}:${sideKey}:depth-side`,\n        -1,\n        1,\n      ) >= 0\n        ? 1\n        : -1;\n    const magnitude = keyedRange(\n      state.soul,\n      `structure:${eventIndex}:${parent.id}:${relation}:${sideKey}:depth-magnitude`,\n      0.12,\n      0.24,\n    );\n    raw = sign * magnitude * length;\n  }\n\n  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);\n  const minimumDelta = -depthHalfSpan - spatialParent.endDepth;\n  const maximumDelta = depthHalfSpan - spatialParent.endDepth;\n  return clamp(raw, Math.max(-cap, minimumDelta), Math.min(cap, maximumDelta));\n}\n\nfunction proposedSpatialClearance(\n  startDepth: number,\n  endDepth: number,\n  start: Point,\n  end: Point,\n  parentId: string,\n  segments: readonly ProjectedSpatialSegment[],\n): number {\n  let clearance = Number.POSITIVE_INFINITY;\n  const candidateStart = { x: start.x, y: start.y, z: startDepth };\n  const candidateEnd = { x: end.x, y: end.y, z: endDepth };\n\n  for (const segment of segments) {\n    if (segment.id === parentId || segment.parentId === parentId) continue;\n    clearance = Math.min(\n      clearance,\n      segmentToSegmentDistance3D(\n        candidateStart,\n        candidateEnd,\n        spatialStart(segment),\n        spatialEnd(segment),\n      ),\n    );\n    if (clearance === 0) return 0;\n  }\n\n  return Number.isFinite(clearance)\n    ? clearance\n    : Math.hypot(\n        end.x - start.x,\n        end.y - start.y,\n        endDepth - startDepth,\n      );\n}\n\n'''
+          text = once(text, marker, helper + marker, 'insert mature spatial helpers')
+
+          # scoreCandidate: retain exact 2D path through 1k, XYZ afterward.
+          text = once(
+              text,
+              '  const parent = context.projectedById.get(candidate.parent.id);\n  if (!parent) return null;\n\n  const start = parent.end;\n  const end = pointFrom(start, candidate.heading, candidate.length);\n',
+              '  const parent = context.projectedById.get(candidate.parent.id);\n  const spatialParent = context.spatialById.get(candidate.parent.id);\n  if (!parent || !spatialParent) return null;\n\n  const start = parent.end;\n  const end = pointFrom(start, candidate.heading, candidate.length);\n  const endDepth = spatialParent.endDepth + candidate.depthDelta;\n',
+              'candidate spatial parent',
+          )
+          text = once(
+              text,
+              '  if (candidate.length <= 0.5) return null;\n  if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {\n',
+              '  if (candidate.length <= 0.5) return null;\n  if (!insideMatureVolume(context, eventIndex, end, endDepth)) return null;\n  if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {\n',
+              'mature volume gate',
+          )
+          text = once(
+              text,
+              '  const clearance = proposedClearance(\n    start,\n    end,\n    candidate.parent.id,\n    context.segments,\n  );\n',
+              '  const clearance =\n    eventIndex <= MATURE_STRUCTURE_HORIZON\n      ? proposedClearance(\n          start,\n          end,\n          candidate.parent.id,\n          context.segments,\n        )\n      : proposedSpatialClearance(\n          spatialParent.endDepth,\n          endDepth,\n          start,\n          end,\n          candidate.parent.id,\n          context.spatialSegments,\n        );\n',
+              'spatial clearance switch',
+          )
+
+          # Mature continuation frontier + persisted depth candidate.
+          text = once(
+              text,
+              '  for (const parent of state.modules) {\n    if (parent.order > MAX_ORDER) continue;\n    if (context.continuationParents.has(parent.id)) continue;\n\n    const projection = context.projectedById.get(parent.id);\n',
+              '  for (const parent of state.modules) {\n    if (parent.order > MAX_ORDER) continue;\n    if (context.continuationParents.has(parent.id)) continue;\n\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);\n      if (latestAxisPosition === undefined) continue;\n      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;\n      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;\n    }\n\n    const projection = context.projectedById.get(parent.id);\n',
+              'continuation frontier',
+          )
+          text = once(
+              text,
+              '    const length = candidateLength(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "continuation",\n      parent.order,\n      traits,\n    );\n\n    for (const offset of offsets) {\n',
+              '    const length = candidateLength(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "continuation",\n      parent.order,\n      traits,\n    );\n    const depthDelta = candidateDepthDelta(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "continuation",\n      parent.axisId,\n      length,\n    );\n\n    for (const offset of offsets) {\n',
+              'continuation depth delta',
+          )
+          text = once(
+              text,
+              '          order: parent.order,\n          heading,\n          length,\n',
+              '          order: parent.order,\n          heading,\n          length,\n          depthDelta,\n',
+              'continuation candidate depth field',
+          )
+
+          # Mature lateral frontier + depth.
+          text = once(
+              text,
+              '  for (const parent of state.modules) {\n    if (parent.order >= MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n',
+              '  for (const parent of state.modules) {\n    if (parent.order >= MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      if (parent.order === 0) continue;\n      const parentPosition = context.modulePositions.get(parent.id);\n      if (parentPosition === undefined) continue;\n      const structuralAge = state.modules.length - 1 - parentPosition;\n      if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;\n    }\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n',
+              'lateral frontier',
+          )
+          text = once(
+              text,
+              '    for (const side of [-1, 1] as const) {\n      const rawHeading = projection.heading + side * divergence;\n      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));\n      const scored = scoreCandidate(\n',
+              '    for (const side of [-1, 1] as const) {\n      const rawHeading = projection.heading + side * divergence;\n      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));\n      const depthDelta = candidateDepthDelta(\n        state,\n        context,\n        eventIndex,\n        parent,\n        "lateral",\n        `axis-${eventIndex}`,\n        length,\n        side,\n      );\n      const scored = scoreCandidate(\n',
+              'lateral depth delta',
+          )
+          # This marker now only refers to the lateral candidate because continuation was patched above.
+          text = once(
+              text,
+              '          order,\n          heading,\n          length,\n',
+              '          order,\n          heading,\n          length,\n          depthDelta,\n',
+              'lateral candidate depth field',
+          )
+
+          # Add mature order-4 same-tier side renewal.
+          renewal_fn = '''function renewalCandidates(\n  state: TreeState,\n  context: GrowthContext,\n  eventIndex: number,\n  traits: TreeTraits,\n): Candidate[] {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];\n\n  const result: Candidate[] = [];\n  for (const parent of state.modules) {\n    if (parent.order !== MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    const parentPosition = context.modulePositions.get(parent.id);\n    if (parentPosition === undefined) continue;\n    const structuralAge = state.modules.length - 1 - parentPosition;\n    if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n    if (axisModules < minimumAxisModulesBeforeLateral(MAX_ORDER, traits)) continue;\n\n    const projection = context.projectedById.get(parent.id);\n    if (!projection) continue;\n\n    const divergence = lateralDivergence(\n      state,\n      eventIndex,\n      parent,\n      MAX_ORDER,\n      traits,\n    );\n    const length = candidateLength(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "renewal",\n      MAX_ORDER,\n      traits,\n    );\n\n    for (const side of [-1, 1] as const) {\n      const rawHeading = projection.heading + side * divergence;\n      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));\n      const depthDelta = candidateDepthDelta(\n        state,\n        context,\n        eventIndex,\n        parent,\n        "renewal",\n        `axis-${eventIndex}`,\n        length,\n        side,\n      );\n      const scored = scoreCandidate(\n        state,\n        context,\n        eventIndex,\n        {\n          parent,\n          relation: "renewal",\n          axisId: `axis-${eventIndex}`,\n          order: MAX_ORDER,\n          heading,\n          length,\n          depthDelta,\n        },\n        traits,\n      );\n      if (scored) result.push(scored);\n    }\n  }\n\n  return result;\n}\n\n'''
+          text = once(
+              text,
+              'function initialModule(\n  state: TreeState,\n',
+              renewal_fn + 'function initialModule(\n  state: TreeState,\n',
+              'insert renewal candidates',
+          )
+          text = once(
+              text,
+              '  if (eventIndex > 5) {\n    candidates = candidates.concat(\n      lateralCandidates(state, context, eventIndex, traits),\n    );\n  } else {\n',
+              '  if (eventIndex > 5) {\n    candidates = candidates.concat(\n      lateralCandidates(state, context, eventIndex, traits),\n    );\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      candidates = candidates.concat(\n        renewalCandidates(state, context, eventIndex, traits),\n      );\n    }\n  } else {\n',
+              'include renewal candidates',
+          )
+          text = once(
+              text,
+              '    restLength: winner.length,\n    restDepth: 0,\n',
+              '    restLength: winner.length,\n    restDepth: winner.depthDelta,\n',
+              'persist winning depth',
+          )
+          # Initial module remains depth zero. Tie-break depth is appended only,
+          # so <=1k all-zero candidate ordering is unchanged.
+          text = once(
+              text,
+              '      a.parent.id.localeCompare(b.parent.id) ||\n      a.heading - b.heading,\n',
+              '      a.parent.id.localeCompare(b.parent.id) ||\n      a.heading - b.heading ||\n      a.depthDelta - b.depthDelta,\n',
+              'depth tie-break',
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # geometry.ts — carry persisted depth through curves.
+          # ------------------------------------------------------------------
+          path = Path('src/domain/geometry.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              'import { pointFrom } from "./spatial";\n',
+              'import { pointFrom } from "./spatial";\nimport { projectTreeSpatial } from "./spatial-geometry";\n',
+              'geometry spatial projection import',
+          )
+          text = once(
+              text,
+              'import type { GrowthModule, Point, ProjectedSegment, TreeState } from "./types";\n',
+              'import type {\n  GrowthModule,\n  Point,\n  Point3D,\n  ProjectedSegment,\n  TreeState,\n} from "./types";\n',
+              'geometry Point3D import',
+          )
+          text = once(
+              text,
+              '  endThickness: number;\n}\n',
+              '  endThickness: number;\n  startDepth: number;\n  endDepth: number;\n}\n',
+              'curve depth fields',
+          )
+          text = once(
+              text,
+              'export function projectTreeCurves(state: TreeState): ProjectedCurve[] {\n  const segments = projectTree(state);\n',
+              'export function projectTreeCurves(state: TreeState): ProjectedCurve[] {\n  const segments = projectTree(state);\n  const spatialById = new Map(\n    projectTreeSpatial(state).map((segment) => [segment.id, segment]),\n  );\n',
+              'curve spatial map',
+          )
+          text = once(
+              text,
+              '    const curve: ProjectedCurve = {\n      ...segment,\n',
+              '    const spatial = spatialById.get(segment.id);\n    if (!spatial) {\n      throw new Error(`Projected curve ${segment.id} has no spatial segment`);\n    }\n\n    const curve: ProjectedCurve = {\n      ...segment,\n',
+              'curve spatial lookup',
+          )
+          text = once(
+              text,
+              '      endThickness: Math.min(startThickness, endThickness),\n    };\n',
+              '      endThickness: Math.min(startThickness, endThickness),\n      startDepth: spatial.startDepth,\n      endDepth: spatial.endDepth,\n    };\n',
+              'curve depth assignment',
+          )
+          # Renewal uses lateral-style junction/taper in JC.
+          text = once(
+              text,
+              '  const baseScale = atStart\n    ? relation === "lateral"\n      ? 0.17\n      : 0.24\n    : 0.24;\n',
+              '  const baseScale = atStart\n    ? relation === "lateral" || relation === "renewal"\n      ? 0.17\n      : 0.24\n    : 0.24;\n',
+              'renewal curve handle',
+          )
+          text = once(
+              text,
+              '    } else if (module.relation === "lateral" && parentSegment) {\n      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);\n    }\n',
+              '    } else if (\n      (module.relation === "lateral" || module.relation === "renewal") &&\n      parentSegment\n    ) {\n      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);\n    }\n',
+              'renewal tangent',
+          )
+          text = once(
+              text,
+              '    } else if (module.relation === "lateral" && parentCurve) {\n      startThickness = Math.min(\n        segment.thickness * 1.05,\n        parentCurve.endThickness * 0.72,\n      );\n    }\n',
+              '    } else if (\n      (module.relation === "lateral" || module.relation === "renewal") &&\n      parentCurve\n    ) {\n      startThickness = Math.min(\n        segment.thickness * 1.05,\n        parentCurve.endThickness * 0.72,\n      );\n    }\n',
+              'renewal taper',
+          )
+          # Export spatial curve sampling with linear depth interpolation.
+          text += '''\n\nexport function sampleProjectedSpatialCurve(\n  curve: ProjectedCurve,\n  steps = 8,\n): Point3D[] {\n  const count = Math.max(1, Math.floor(steps));\n  const points: Point3D[] = [];\n  for (let index = 0; index <= count; index += 1) {\n    const t = index / count;\n    const point = curvePoint(curve, t);\n    points.push({\n      x: point.x,\n      y: point.y,\n      z: curve.startDepth + (curve.endDepth - curve.startDepth) * t,\n    });\n  }\n  return points;\n}\n'''
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # diagnostics.ts — renewal history + spatial curved clearance.
+          # ------------------------------------------------------------------
+          path = Path('src/domain/diagnostics.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              'import { projectTree, projectTreeCurves, sampleProjectedCurve } from "./geometry";\n',
+              'import {\n  projectTree,\n  projectTreeCurves,\n  sampleProjectedCurve,\n  sampleProjectedSpatialCurve,\n} from "./geometry";\n',
+              'diagnostics spatial curve import',
+          )
+          text = once(
+              text,
+              'import { properIntersection, segmentToSegmentDistance } from "./spatial";\n',
+              'import {\n  properIntersection,\n  segmentToSegmentDistance,\n  segmentToSegmentDistance3D,\n} from "./spatial";\n',
+              'diagnostics 3d distance import',
+          )
+          text = once(
+              text,
+              'import type { GrowthModule, Point, TreeState } from "./types";\n',
+              'import type { GrowthModule, Point, Point3D, TreeState } from "./types";\n',
+              'diagnostics Point3D import',
+          )
+          text = once(
+              text,
+              '  curveCrossings: number;\n  crowdedPairs: number;\n',
+              '  curveCrossings: number;\n  projectedCurveCrossings: number;\n  crowdedPairs: number;\n',
+              'projected curve diagnostic field',
+          )
+          text = once(
+              text,
+              '  const relationByParent = new Map<string, Set<string>>();\n',
+              '  const relationByParent = new Map<string, Set<string>>();\n  const sideBranchParents = new Set<string>();\n',
+              'side branch diagnostic set',
+          )
+          text = once(
+              text,
+              '      } else if (module.relation === "lateral") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`lateral ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order + 1) {\n          errors.push(`lateral ${module.id} must increment branch order`);\n        }\n      } else {\n',
+              '      } else if (module.relation === "lateral") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`lateral ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order + 1) {\n          errors.push(`lateral ${module.id} must increment branch order`);\n        }\n      } else if (module.relation === "renewal") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`renewal ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order || module.order !== 4) {\n          errors.push(`renewal ${module.id} must preserve fine order 4`);\n        }\n        if (module.bornAtEvent <= MATURE_STRUCTURE_HORIZON) {\n          errors.push(`renewal ${module.id} cannot predate mature horizon`);\n        }\n      } else {\n',
+              'renewal history rules',
+          )
+          # diagnostics.ts does not know the structure constant; use literal in this module.
+          text = text.replace('module.bornAtEvent <= MATURE_STRUCTURE_HORIZON', 'module.bornAtEvent <= 1000')
+          text = once(
+              text,
+              '      const relations = relationByParent.get(module.parentId) ?? new Set<string>();\n',
+              '      if (module.relation === "lateral" || module.relation === "renewal") {\n        if (sideBranchParents.has(module.parentId)) {\n          errors.push(`parent ${module.parentId} has more than one side-branch child`);\n        }\n        sideBranchParents.add(module.parentId);\n      }\n\n      const relations = relationByParent.get(module.parentId) ?? new Set<string>();\n',
+              'side branch slot invariant',
+          )
+          text = once(
+              text,
+              '      module?.relation === "lateral" &&\n      parent &&\n',
+              '      (module?.relation === "lateral" || module?.relation === "renewal") &&\n      parent &&\n',
+              'renewal diameter rule',
+          )
+          # Add 3D polyline clearance helper beside existing 2D one.
+          marker = 'function isLocalJunction(\n'
+          helper3 = '''function polylineClearance3D(\n  a: readonly Point3D[],\n  b: readonly Point3D[],\n): number {\n  let minimum = Number.POSITIVE_INFINITY;\n  for (let ai = 0; ai < a.length - 1; ai += 1) {\n    for (let bi = 0; bi < b.length - 1; bi += 1) {\n      minimum = Math.min(\n        minimum,\n        segmentToSegmentDistance3D(\n          a[ai],\n          a[ai + 1],\n          b[bi],\n          b[bi + 1],\n        ),\n      );\n    }\n  }\n  return minimum;\n}\n\n'''
+          text = once(text, marker, helper3 + marker, '3d polyline clearance helper')
+          text = once(
+              text,
+              '  const sampled = new Map(\n    curves.map((curve) => [curve.id, sampleProjectedCurve(curve, steps)]),\n  );\n\n  let curveCrossings = 0;\n',
+              '  const sampled = new Map(\n    curves.map((curve) => [curve.id, sampleProjectedCurve(curve, steps)]),\n  );\n  const sampledSpatial = new Map(\n    curves.map((curve) => [\n      curve.id,\n      sampleProjectedSpatialCurve(curve, steps),\n    ]),\n  );\n\n  let curveCrossings = 0;\n  let projectedCurveCrossings = 0;\n',
+              'spatial curve samples',
+          )
+          text = once(
+              text,
+              '      const bPoints = sampled.get(b.id) ?? [];\n      if (polylineCrosses(aPoints, bPoints)) {\n        curveCrossings += 1;\n      }\n      const clearance = polylineClearance(aPoints, bPoints);\n      minimumNonLocalClearance = Math.min(minimumNonLocalClearance, clearance);\n      if (clearance < 0.65) crowdedPairs += 1;\n',
+              '      const bPoints = sampled.get(b.id) ?? [];\n      if (polylineCrosses(aPoints, bPoints)) {\n        projectedCurveCrossings += 1;\n      }\n      const aSpatial = sampledSpatial.get(a.id) ?? [];\n      const bSpatial = sampledSpatial.get(b.id) ?? [];\n      const clearance = polylineClearance3D(aSpatial, bSpatial);\n      minimumNonLocalClearance = Math.min(minimumNonLocalClearance, clearance);\n      if (clearance < 1e-6) curveCrossings += 1;\n      if (clearance < 0.65) crowdedPairs += 1;\n',
+              'spatial curve pair diagnostic',
+          )
+          text = once(
+              text,
+              '    curveCrossings,\n    crowdedPairs,\n',
+              '    curveCrossings,\n    projectedCurveCrossings,\n    crowdedPairs,\n',
+              'return projected curve crossings',
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # mature-frontier.ts / test — count renewal as mature side growth.
+          # ------------------------------------------------------------------
+          path = Path('src/domain/mature-frontier.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              '  postHorizonLaterals: number;\n',
+              '  postHorizonLaterals: number;\n  postHorizonRenewals: number;\n',
+              'frontier renewal field',
+          )
+          text = once(
+              text,
+              '  const postLaterals = postHorizon.filter(\n    (module) => module.relation === "lateral",\n  );\n',
+              '  const postLaterals = postHorizon.filter(\n    (module) => module.relation === "lateral",\n  );\n  const postRenewals = postHorizon.filter(\n    (module) => module.relation === "renewal",\n  );\n  const postSideBranches = [...postLaterals, ...postRenewals];\n',
+              'frontier renewal counts',
+          )
+          text = once(
+              text,
+              '    if (module.relation === "lateral") {\n',
+              '    if (module.relation === "lateral" || module.relation === "renewal") {\n',
+              'frontier renewal age metrics',
+          )
+          text = once(
+              text,
+              '    postHorizonLaterals: postLaterals.length,\n',
+              '    postHorizonLaterals: postLaterals.length,\n    postHorizonRenewals: postRenewals.length,\n',
+              'frontier renewal return',
+          )
+          text = once(
+              text,
+              '    legacyWoodLateralFraction:\n      postLaterals.length > 0\n        ? legacyWoodLateralActivations / postLaterals.length\n        : 0,\n',
+              '    legacyWoodLateralFraction:\n      postSideBranches.length > 0\n        ? legacyWoodLateralActivations / postSideBranches.length\n        : 0,\n',
+              'frontier side denominator',
+          )
+          path.write_text(text)
+
+          path = Path('src/domain/mature-frontier.test.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              '      first.postHorizonContinuations + first.postHorizonLaterals,\n    ).toBe(first.postHorizonModules);\n',
+              '      first.postHorizonContinuations +\n        first.postHorizonLaterals +\n        first.postHorizonRenewals,\n    ).toBe(first.postHorizonModules);\n',
+              'frontier test relation sum',
+          )
+          text = once(
+              text,
+              '    expect(diagnostics.postHorizonLaterals).toBe(0);\n',
+              '    expect(diagnostics.postHorizonLaterals).toBe(0);\n    expect(diagnostics.postHorizonRenewals).toBe(0);\n',
+              'frontier renewal boundary',
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # longevity.test.ts — replace Phase-B all-zero depth with spatial gate.
+          # ------------------------------------------------------------------
+          path = Path('src/domain/longevity.test.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              'import { diagnoseFoliage } from "./foliage-diagnostics";\n',
+              'import { diagnoseFoliage } from "./foliage-diagnostics";\nimport { diagnoseSpatialWood } from "./spatial-diagnostics";\n',
+              'longevity spatial diagnostic import',
+          )
+          text = once(
+              text,
+              '  expect(\n    state.modules.every((module) => module.restDepth === 0),\n    "Phase B must preserve the existing planar history exactly",\n  ).toBe(true);\n',
+              '  expect(\n    state.modules\n      .filter((module) => module.bornAtEvent <= 1000)\n      .every((module) => module.restDepth === 0),\n    "accepted <=1k structure must remain exactly depth-zero",\n  ).toBe(true);\n  expect(state.modules.every((module) => Number.isFinite(module.restDepth))).toBe(true);\n',
+              'longevity depth assertions',
+          )
+          text = once(
+              text,
+              '  expect(structure.crossings).toBe(0);\n',
+              '',
+              'remove mature projected crossing failure',
+          )
+          text = once(
+              text,
+              '  expect(Number.isFinite(structure.aspectRatio)).toBe(true);\n\n  expect(state.modules.length).toBeGreaterThan(50);\n',
+              '  expect(Number.isFinite(structure.aspectRatio)).toBe(true);\n  expect(\n    state.modules.reduce((max, module) => Math.max(max, module.order), 0),\n  ).toBeLessThanOrEqual(4);\n\n  const spatial = diagnoseSpatialWood(state);\n  expect(spatial.unsafeSpatialPairs).toBe(0);\n  expect(Number.isFinite(spatial.maxAbsDepth)).toBe(true);\n  if (expectedEntries > 1000) {\n    expect(spatial.nonZeroDepthModules).toBeGreaterThan(0);\n    const reference = historicalPrefix(state, 1000);\n    const referenceWidth = diagnoseTree(reference).width;\n    const allowedDepth =\n      2 +\n      Math.max(1, referenceWidth) *\n        0.08 *\n        Math.log2(expectedEntries / 1000);\n    expect(spatial.maxAbsDepth).toBeLessThanOrEqual(allowedDepth + 1e-6);\n  }\n\n  expect(state.modules.length).toBeGreaterThan(50);\n',
+              'longevity spatial gate',
+          )
+          text = once(
+              text,
+              '      validateLongHistory(at30000, 30000);\n\n      expectBucketPrefixStable(at3000, at10000, "module");\n',
+              '      validateLongHistory(at30000, 30000);\n      expect(\n        at30000.modules.some((module) => module.relation === "renewal"),\n        "30k organism should exercise mature spatial renewal",\n      ).toBe(true);\n\n      expectBucketPrefixStable(at3000, at10000, "module");\n',
+              'renewal exercised at 30k',
+          )
+          path.write_text(text)
+
+          # ------------------------------------------------------------------
+          # spatial-diagnostics.ts — avoid O(n^2) module lookup.
+          # ------------------------------------------------------------------
+          path = Path('src/domain/spatial-diagnostics.ts')
+          text = path.read_text()
+          text = once(
+              text,
+              '  const segments = projectTreeSpatial(state);\n  let projectedCrossings = 0;\n',
+              '  const segments = projectTreeSpatial(state);\n  const moduleById = new Map(state.modules.map((module) => [module.id, module]));\n  let projectedCrossings = 0;\n',
+              'spatial diagnostic module map',
+          )
+          text = once(
+              text,
+              '    const module = state.modules.find((candidate) => candidate.id === segment.id);\n',
+              '    const module = moduleById.get(segment.id);\n',
+              'spatial diagnostic lookup',
+          )
+          path.write_text(text)
+
+      - name: Commit JC
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/domain/structure.ts src/domain/geometry.ts src/domain/diagnostics.ts src/domain/mature-frontier.ts src/domain/mature-frontier.test.ts src/domain/longevity.test.ts src/domain/spatial-diagnostics.ts
+          git commit -m "Prototype first depth-enabled mature growth JC"
+          git push origin HEAD:v3-spatial-depth-jc
