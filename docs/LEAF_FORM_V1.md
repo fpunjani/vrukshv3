@@ -140,7 +140,7 @@ The accepted branch proves:
 9. an eight-soul directional guard rejects a return to a globally upward crown by requiring meaningful lateral/downward representation;
 10. existing structural, foliage-attachment, 30k longevity, canopy-LOD, build, and browser gates remain green.
 
-The directional guard is sampled at 300 entries rather than replaying another eight 1000-entry histories. Bearing itself is history-size-independent, while the separate 1000-entry geometry test and browser matrices still cover the mature visual horizon. This avoids making a visual regression test compete unnecessarily with the 128-soul structural stress gate.
+The directional guard is sampled at 100 entries (800 projected bearings across the eight visual souls) rather than replaying another eight mature histories. Bearing itself is history-size-independent, while the separate 1000-entry geometry test and 30 / 100 / 300 / 1000 browser matrices still cover the mature visual horizon. This keeps the directional regression meaningful without making it compete unnecessarily with the 128-soul structural stress gate.
 
 ## Human visual acceptance — PASS
 
