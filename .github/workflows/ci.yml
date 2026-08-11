@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Capture Tree Lab visual gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/tree-lab
+
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vruksh-vite.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          READY=0
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/vruksh-vite.log
+            exit 1
+          fi
+
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$CHROME" ]; then
+            echo "No Chrome/Chromium binary found on the runner"
+            exit 1
+          fi
+
+          for COUNT in 30 100 300 1000; do
+            "$CHROME" \
+              --headless=new \
+              --no-sandbox \
+              --disable-gpu \
+              --hide-scrollbars \
+              --force-device-scale-factor=1 \
+              --virtual-time-budget=5000 \
+              --window-size=1800,9000 \
+              --screenshot="$PWD/artifacts/tree-lab/count-${COUNT}.png" \
+              "http://127.0.0.1:4173/?count=${COUNT}"
+          done
+
+      - name: Upload Tree Lab visual gate
+        uses: actions/upload-artifact@v7
+        with:
+          name: tree-lab-visual-gate
+          path: artifacts/tree-lab/*.png
+          if-no-files-found: error
+          retention-days: 14
