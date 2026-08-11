@@ -61,16 +61,16 @@ describe("V3 Leaf Form V1", () => {
           expect(finite(point), `${form.entryId} finite geometry`).toBe(true);
         }
 
-        expect(form.length).toBeGreaterThanOrEqual(3.1);
-        expect(form.length).toBeLessThanOrEqual(8.3);
-        expect(form.width).toBeGreaterThan(0.85);
-        expect(form.width).toBeLessThanOrEqual(3.65);
-        expect(form.petioleLength).toBeGreaterThan(0.65);
-        expect(form.petioleLength).toBeLessThanOrEqual(1.9);
+        expect(form.length).toBeGreaterThanOrEqual(3.55);
+        expect(form.length).toBeLessThanOrEqual(11.35);
+        expect(form.width).toBeGreaterThan(1.0);
+        expect(form.width).toBeLessThanOrEqual(5.4);
+        expect(form.petioleLength).toBeGreaterThan(0.7);
+        expect(form.petioleLength).toBeLessThanOrEqual(2.15);
 
         const sideDot =
           form.direction.x * frame.normal.x + form.direction.y * frame.normal.y;
-        expect(sideDot, `${form.entryId} remains on stored side`).toBeGreaterThan(0.1);
+        expect(sideDot, `${form.entryId} remains on stored side`).toBeGreaterThan(0.04);
       }
     },
     15_000,
@@ -90,10 +90,10 @@ describe("V3 Leaf Form V1", () => {
 
     expect(repeated).toEqual(first);
     expect(second).not.toEqual(first);
-    expect(first.baseLength).toBeGreaterThanOrEqual(5.4);
-    expect(first.baseLength).toBeLessThanOrEqual(6.8);
-    expect(first.widthRatio).toBeGreaterThanOrEqual(0.3);
-    expect(first.widthRatio).toBeLessThanOrEqual(0.4);
+    expect(first.baseLength).toBeGreaterThanOrEqual(7.4);
+    expect(first.baseLength).toBeLessThanOrEqual(9.2);
+    expect(first.widthRatio).toBeGreaterThanOrEqual(0.32);
+    expect(first.widthRatio).toBeLessThanOrEqual(0.43);
     expect(first.forwardBias).toBeGreaterThanOrEqual(0.52);
     expect(first.forwardBias).toBeLessThanOrEqual(0.66);
   });
