@@ -11,7 +11,7 @@ const BASE_MATURE_OPPORTUNITY = Math.floor(
 const MATURE_GROWTH_SCALE = 2 * Math.sqrt(BASE_MATURE_OPPORTUNITY);
 
 export function createTree(soul: string): TreeState {
-  return { schemaVersion: 2, soul, growthIndex: 0, modules: [], leaves: [] };
+  return { schemaVersion: 3, soul, growthIndex: 0, modules: [], leaves: [] };
 }
 
 function compareChronology(
