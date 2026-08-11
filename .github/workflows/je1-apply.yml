@@ -1,0 +1,96 @@
+name: Apply JE1 Balanced Meristems
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-je1-balanced-meristems
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage JE1 balanced meristems'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-spatial-depth-je1-balanced-meristems
+
+      - name: Wire bounded scaffold reserve into mature continuation
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+
+          old = 'import { keyedRange } from "./random";\n'
+          new = (
+            'import { keyedRange } from "./random";\n'
+            'import { deriveScaffoldBalancedMeristemFrontier } from "./mature-meristem-frontier";\n'
+          )
+          if text.count(old) != 1:
+            raise SystemExit(f'import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = 'const MATURE_TIP_STRUCTURAL_WINDOW = 64;\nconst MATURE_SIDE_STRUCTURAL_WINDOW = 48;\n'
+          new = (
+            'const MATURE_TIP_STRUCTURAL_WINDOW = 64;\n'
+            'const MATURE_SCAFFOLD_RESERVE_PER_LINEAGE = 4;\n'
+            'const MATURE_SIDE_STRUCTURAL_WINDOW = 48;\n'
+          )
+          if text.count(old) != 1:
+            raise SystemExit(f'constant marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '  successorParents: Set<string>;\n  lateralParents: Set<string>;\n'
+          new = (
+            '  successorParents: Set<string>;\n'
+            '  matureContinuationTipIds: ReadonlySet<string>;\n'
+            '  lateralParents: Set<string>;\n'
+          )
+          if text.count(old) != 1:
+            raise SystemExit(f'context type marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''  const firstOrderAxisTips = [...latestFirstOrderModuleByAxis.values()]\n    .map((module) => projectedById.get(module.id))\n    .filter((segment): segment is ProjectedSegment => Boolean(segment));\n\n  return {\n'''
+          new = '''  const firstOrderAxisTips = [...latestFirstOrderModuleByAxis.values()]\n    .map((module) => projectedById.get(module.id))\n    .filter((segment): segment is ProjectedSegment => Boolean(segment));\n\n  const matureContinuationTipIds = deriveScaffoldBalancedMeristemFrontier(\n    state.modules,\n    MATURE_STRUCTURE_HORIZON,\n    MATURE_TIP_STRUCTURAL_WINDOW,\n    MATURE_SCAFFOLD_RESERVE_PER_LINEAGE,\n  ).selectedTipIds;\n\n  return {\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'frontier derivation marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '    successorParents,\n    lateralParents,\n'
+          new = '    successorParents,\n    matureContinuationTipIds,\n    lateralParents,\n'
+          if text.count(old) != 1:
+            raise SystemExit(f'context return marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);\n      if (latestAxisPosition === undefined) continue;\n      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;\n      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;\n    }\n'''
+          new = '''    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      if (parent.order === 0) {\n        // Keep the established trunk treatment exactly as JE0. Scaffold\n        // balancing applies only to non-trunk living meristems.\n        const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);\n        if (latestAxisPosition === undefined) continue;\n        const structuralDormancy = state.modules.length - 1 - latestAxisPosition;\n        if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;\n      } else if (!context.matureContinuationTipIds.has(parent.id)) {\n        continue;\n      }\n    }\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'continuation frontier marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          required = [
+            'deriveScaffoldBalancedMeristemFrontier',
+            'MATURE_SCAFFOLD_RESERVE_PER_LINEAGE = 4',
+            'matureContinuationTipIds: ReadonlySet<string>;',
+            '!context.matureContinuationTipIds.has(parent.id)',
+          ]
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+            raise SystemExit(f'missing JE1 markers: {missing}')
+
+          path.write_text(text)
+
+      - name: Commit JE1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/domain/structure.ts
+          git commit -m "Apply scaffold-balanced mature meristem reserve"
+          git push origin HEAD:v3-spatial-depth-je1-balanced-meristems
