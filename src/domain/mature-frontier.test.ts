@@ -23,7 +23,9 @@ describe("V3 mature frontier diagnostics", () => {
     expect(state).toEqual(before);
     expect(first.postHorizonModules).toBeGreaterThan(0);
     expect(
-      first.postHorizonContinuations + first.postHorizonLaterals,
+      first.postHorizonContinuations +
+        first.postHorizonLaterals +
+        first.postHorizonRenewals,
     ).toBe(first.postHorizonModules);
     expect(
       first.postHorizonOrderCounts.reduce((sum, count) => sum + count, 0),
@@ -96,6 +98,7 @@ describe("V3 mature frontier diagnostics", () => {
     );
     expect(diagnostics.postHorizonModules).toBe(0);
     expect(diagnostics.postHorizonLaterals).toBe(0);
+    expect(diagnostics.postHorizonRenewals).toBe(0);
     expect(diagnostics.postHorizonContinuations).toBe(0);
     expect(diagnostics.newOrder1Axes).toBe(0);
     expect(diagnostics.legacyWoodLateralActivations).toBe(0);

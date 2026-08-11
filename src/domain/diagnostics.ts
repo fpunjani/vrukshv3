@@ -42,8 +42,9 @@ function validateHistory(state: TreeState): string[] {
   const byId = new Map<string, GrowthModule>();
   const leafIds = new Set<string>();
   const relationByParent = new Map<string, Set<string>>();
+  const successorParents = new Set<string>();
 
-  if (state.schemaVersion !== 2) {
+  if (state.schemaVersion !== 3) {
     errors.push(`unsupported schema version ${String(state.schemaVersion)}`);
   }
   if (state.leaves.length !== state.growthIndex) {
@@ -93,8 +94,25 @@ function validateHistory(state: TreeState): string[] {
         if (module.order !== parent.order + 1) {
           errors.push(`lateral ${module.id} must increment branch order`);
         }
+      } else if (module.relation === "renewal") {
+        if (module.axisId === parent.axisId) {
+          errors.push(`renewal ${module.id} must create a new axis`);
+        }
+        if (module.order !== parent.order || module.order !== 4) {
+          errors.push(`renewal ${module.id} must preserve fine order 4`);
+        }
+        if (module.bornAtEvent <= 1000) {
+          errors.push(`renewal ${module.id} cannot predate mature horizon`);
+        }
       } else {
         errors.push(`non-root module ${module.id} cannot have origin relation`);
+      }
+
+      if (module.relation === "continuation" || module.relation === "renewal") {
+        if (successorParents.has(module.parentId)) {
+          errors.push(`parent ${module.parentId} has more than one successor child`);
+        }
+        successorParents.add(module.parentId);
       }
 
       const relations = relationByParent.get(module.parentId) ?? new Set<string>();
@@ -274,7 +292,7 @@ export function diagnoseCurvedWood(
       continuationDiameterErrors += 1;
     }
     if (
-      module?.relation === "lateral" &&
+      (module?.relation === "lateral" || module?.relation === "renewal") &&
       parent &&
       curve.startThickness >= parent.endThickness - 1e-9
     ) {

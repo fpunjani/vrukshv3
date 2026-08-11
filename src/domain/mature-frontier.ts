@@ -10,6 +10,7 @@ export interface MatureFrontierDiagnostics {
   postHorizonModules: number;
   postHorizonContinuations: number;
   postHorizonLaterals: number;
+  postHorizonRenewals: number;
   postHorizonOrderCounts: number[];
   newOrder1Axes: number;
   legacyWoodLateralActivations: number;
@@ -129,6 +130,9 @@ export function diagnoseMatureFrontier(
   const postLaterals = postHorizon.filter(
     (module) => module.relation === "lateral",
   );
+  const postRenewals = postHorizon.filter(
+    (module) => module.relation === "renewal",
+  );
 
   const maxOrder = state.modules.reduce(
     (max, module) => Math.max(max, module.order),
@@ -234,6 +238,7 @@ export function diagnoseMatureFrontier(
     postHorizonModules: postHorizon.length,
     postHorizonContinuations: postContinuations.length,
     postHorizonLaterals: postLaterals.length,
+    postHorizonRenewals: postRenewals.length,
     postHorizonOrderCounts,
     newOrder1Axes,
     legacyWoodLateralActivations,

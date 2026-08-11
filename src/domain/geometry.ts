@@ -112,6 +112,10 @@ function endThicknessBySegment(
   return result;
 }
 
+function isRenewal(relation: GrowthModule["relation"]): boolean {
+  return relation === "renewal";
+}
+
 function curveHandleLength(
   segment: ProjectedSegment,
   relation: GrowthModule["relation"],
@@ -121,7 +125,9 @@ function curveHandleLength(
   const baseScale = atStart
     ? relation === "lateral"
       ? 0.17
-      : 0.24
+      : isRenewal(relation)
+        ? 0.2
+        : 0.24
     : 0.24;
   const deviation = Math.abs(normalizeDelta(tangent - segment.heading));
   const corridorScale = Math.max(0.62, 1 - deviation / 70);
@@ -173,6 +179,8 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       startTangent = parentEndTangent;
     } else if (module.relation === "lateral" && parentSegment) {
       startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);
+    } else if (module.relation === "renewal" && parentSegment) {
+      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.5);
     }
 
     const endTangent = endTangentById.get(segment.id) ?? segment.heading;
@@ -200,6 +208,11 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       startThickness = Math.min(
         segment.thickness * 1.05,
         parentCurve.endThickness * 0.72,
+      );
+    } else if (module.relation === "renewal" && parentCurve) {
+      startThickness = Math.min(
+        segment.thickness * 1.05,
+        parentCurve.endThickness * 0.86,
       );
     }
 
