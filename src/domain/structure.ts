@@ -627,28 +627,24 @@ function normalizeHeadingDelta(degrees: number): number {
   return ((degrees + 540) % 360) - 180;
 }
 
-function matureSteeringAttractors(
+interface IndexedMatureAttractor {
+  attractor: NormalizedVolumePoint;
+  index: number;
+}
+
+function uncolonizedMatureSteeringAttractors(
   state: TreeState,
   context: GrowthContext,
   eventIndex: number,
-  parentPoint: Point,
-  parentDepth: number,
-  limit = 2,
-): NormalizedVolumePoint[] {
+): IndexedMatureAttractor[] {
   const terminalTips = context.axisTips
     .map((tip) => context.spatialById.get(tip.id))
     .filter((tip): tip is ProjectedSpatialSegment => Boolean(tip))
     .map((tip) =>
       normalizedMaturePoint(context, eventIndex, tip.end, tip.endDepth),
     );
-  const parentNormalized = normalizedMaturePoint(
-    context,
-    eventIndex,
-    parentPoint,
-    parentDepth,
-  );
   const KILL_RADIUS = 0.13;
-  const available: Array<{ attractor: NormalizedVolumePoint; distance: number; index: number }> = [];
+  const available: IndexedMatureAttractor[] = [];
 
   for (let index = 0; index < 32; index += 1) {
     const attractor = matureAttractor(state.soul, index);
@@ -660,17 +656,35 @@ function matureSteeringAttractors(
       );
     }
     if (currentDistance <= KILL_RADIUS) continue;
-    available.push({
-      attractor,
-      distance: normalizedDistance(parentNormalized, attractor),
-      index,
-    });
+    available.push({ attractor, index });
   }
 
-  available.sort(
-    (a, b) => a.distance - b.distance || a.index - b.index,
+  return available;
+}
+
+function nearestMatureSteeringAttractors(
+  context: GrowthContext,
+  eventIndex: number,
+  parentPoint: Point,
+  parentDepth: number,
+  available: readonly IndexedMatureAttractor[],
+  limit = 2,
+): NormalizedVolumePoint[] {
+  const parentNormalized = normalizedMaturePoint(
+    context,
+    eventIndex,
+    parentPoint,
+    parentDepth,
   );
-  return available.slice(0, Math.max(0, limit)).map((item) => item.attractor);
+  return [...available]
+    .sort(
+      (a, b) =>
+        normalizedDistance(parentNormalized, a.attractor) -
+          normalizedDistance(parentNormalized, b.attractor) ||
+        a.index - b.index,
+    )
+    .slice(0, Math.max(0, limit))
+    .map((item) => item.attractor);
 }
 
 function steeredContinuationDepthDelta(
@@ -1019,6 +1033,10 @@ function continuationCandidates(
   traits: TreeTraits,
 ): Candidate[] {
   const result: Candidate[] = [];
+  const steeringAttractors =
+    eventIndex > MATURE_STRUCTURE_HORIZON
+      ? uncolonizedMatureSteeringAttractors(state, context, eventIndex)
+      : [];
 
   for (const parent of state.modules) {
     if (parent.order > MAX_ORDER) continue;
@@ -1101,12 +1119,12 @@ function continuationCandidates(
     if (eventIndex > MATURE_STRUCTURE_HORIZON) {
       const spatialParent = context.spatialById.get(parent.id);
       if (!spatialParent) continue;
-      const targets = matureSteeringAttractors(
-        state,
+      const targets = nearestMatureSteeringAttractors(
         context,
         eventIndex,
         projection.end,
         spatialParent.endDepth,
+        steeringAttractors,
         2,
       );
 
