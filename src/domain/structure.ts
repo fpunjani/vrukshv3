@@ -529,15 +529,28 @@ function axisLightTarget(
   return traits.lean * 0.35 + side * targetMagnitude;
 }
 
-function continuationTropismStrength(order: number, axisModules: number): number {
-  if (order === 0) return 0.16;
-  if (order === 1) {
+function continuationTropismStrength(
+  state: TreeState,
+  order: number,
+  axisModules: number,
+): number {
+  let base: number;
+  if (order === 0) base = 0.16;
+  else if (order === 1) {
     if (axisModules < 6) return 0;
-    return Math.min(0.18, 0.12 + (axisModules - 6) * 0.025);
+    base = Math.min(0.18, 0.12 + (axisModules - 6) * 0.025);
+  } else if (order === 2) base = 0.13;
+  else if (order === 3) base = 0.16;
+  else base = 0.18;
+
+  if (state.growthIndex >= MATURE_STRUCTURE_HORIZON && order >= 3) {
+    // Mature fine axes should retain more of their established direction.
+    // Global light seeking still acts, but it no longer repeatedly straightens
+    // every high-order continuation toward the same near-vertical target.
+    return base * (order === 3 ? 0.55 : 0.4);
   }
-  if (order === 2) return 0.13;
-  if (order === 3) return 0.16;
-  return 0.18;
+
+  return base;
 }
 
 function lateralDivergence(
@@ -640,7 +653,7 @@ function continuationCandidates(
     const targetHeading = axisLightTarget(state, context, parent, projection, traits);
     const tropism =
       (targetHeading - projection.heading) *
-      continuationTropismStrength(parent.order, axisModules);
+      continuationTropismStrength(state, parent.order, axisModules);
     const localNoise = keyedRange(
       state.soul,
       `structure:${eventIndex}:${parent.id}:continue:curve`,
