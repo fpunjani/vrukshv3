@@ -2,7 +2,7 @@ export type EntryStatus = "open" | "completed" | "archived";
 export interface Entry { id:string; text:string; createdAt:number; status:EntryStatus; }
 export interface Point { x:number; y:number; }
 export interface Point3D { x:number; y:number; z:number; }
-export type GrowthRelation = "origin" | "continuation" | "lateral";
+export type GrowthRelation = "origin" | "continuation" | "lateral" | "renewal";
 export interface GrowthModule { id:string; parentId:string|null; axisId:string; relation:GrowthRelation; order:number; bornAtEvent:number; restTurn:number; restLength:number; restDepth:number; }
 export type LeafSide = -1 | 1;
 export interface LeafAttachment { moduleId:string; position:number; side:LeafSide; }
