@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
+import { projectTreeCurves, sampleProjectedCurve } from "./geometry";
 import { replayEntries } from "./growth";
 import { diagnoseMorphology } from "./morphology";
-import type { Entry } from "./types";
+import { segmentToSegmentDistance } from "./spatial";
+import type { Entry, GrowthModule, Point, TreeState } from "./types";
 
 const HISTORY: Entry[] = Array.from({ length: 1000 }, (_, index) => ({
   id: `e-${index + 1}`,
@@ -37,6 +39,67 @@ function compact(soul: string, milestone: number) {
   };
 }
 
+function polylineClearance(a: readonly Point[], b: readonly Point[]): number {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let ai = 0; ai < a.length - 1; ai += 1) {
+    for (let bi = 0; bi < b.length - 1; bi += 1) {
+      minimum = Math.min(
+        minimum,
+        segmentToSegmentDistance(a[ai], a[ai + 1], b[bi], b[bi + 1]),
+      );
+    }
+  }
+  return minimum;
+}
+
+function relationSnapshot(module: GrowthModule | undefined) {
+  if (!module) return null;
+  return {
+    id: module.id,
+    parentId: module.parentId,
+    axisId: module.axisId,
+    order: module.order,
+    relation: module.relation,
+    bornAtEvent: module.bornAtEvent,
+  };
+}
+
+function closestNonlocalCurvePair(state: TreeState) {
+  const curves = projectTreeCurves(state);
+  const moduleById = new Map(state.modules.map((module) => [module.id, module]));
+  const sampled = new Map(curves.map((curve) => [curve.id, sampleProjectedCurve(curve, 12)]));
+  let best:
+    | {
+        clearance: number;
+        a: ReturnType<typeof relationSnapshot>;
+        b: ReturnType<typeof relationSnapshot>;
+      }
+    | undefined;
+
+  for (let ai = 0; ai < curves.length; ai += 1) {
+    const a = curves[ai];
+    for (let bi = ai + 1; bi < curves.length; bi += 1) {
+      const b = curves[bi];
+      if (
+        a.parentId === b.id ||
+        b.parentId === a.id ||
+        (a.parentId !== null && a.parentId === b.parentId)
+      ) {
+        continue;
+      }
+      const clearance = polylineClearance(sampled.get(a.id) ?? [], sampled.get(b.id) ?? []);
+      if (!best || clearance < best.clearance) {
+        best = {
+          clearance,
+          a: relationSnapshot(moduleById.get(a.id)),
+          b: relationSnapshot(moduleById.get(b.id)),
+        };
+      }
+    }
+  }
+  return best;
+}
+
 describe("V3 scaffold morphology baseline", () => {
   it("reports the browser-review morphology blind spot before setting acceptance thresholds", () => {
     const report = [100, 300, 1000].flatMap((milestone) =>
@@ -59,6 +122,7 @@ describe("V3 scaffold morphology baseline", () => {
       "CURVE_OUTLIER",
       JSON.stringify({
         curve: diagnoseCurvedWood(curveOutlierState, 8),
+        closestPair: closestNonlocalCurvePair(curveOutlierState),
         morphology: diagnoseMorphology(curveOutlierState),
       }),
     );
