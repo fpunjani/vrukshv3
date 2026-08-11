@@ -1,0 +1,60 @@
+name: Mature D Visual Gate
+
+on:
+  push:
+    branches:
+      - v3-mature-unbounded-order-d
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Capture long-life gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p visual-gate/lod-long
+          npm exec vite -- preview --host 127.0.0.1 --port 4173 > /tmp/vruksh-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then break; fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:4173/ > /dev/null
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          test -n "$chrome"
+          for count in 3000 10000 30000; do
+            "$chrome" --headless --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=1600,2200 \
+              --screenshot="visual-gate/lod-long/count-${count}.png" \
+              "http://127.0.0.1:4173/?long=1&count=${count}&soul=ash-01"
+          done
+
+      - name: Upload visual gate
+        uses: actions/upload-artifact@v7
+        with:
+          name: mature-d-visual-gate
+          path: visual-gate
+          if-no-files-found: error
+          retention-days: 14
