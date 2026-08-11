@@ -2,9 +2,6 @@ name: Mature Frontier Measure
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - v3-mature-frontier-diagnostics
 
 permissions:
   contents: read
@@ -30,10 +27,10 @@ jobs:
       - name: Measure mature frontier
         shell: bash
         env:
-          MATURE_FRONTIER_MEASURE: "1"
+          VITE_MATURE_FRONTIER_MEASURE: "1"
         run: |
           set -euo pipefail
-          npm exec vitest run src/domain/mature-frontier.measure.test.ts --reporter=verbose 2>&1 | tee mature-frontier-report.txt
+          npm exec -- vitest run src/domain/mature-frontier.measure.test.ts --reporter=verbose 2>&1 | tee mature-frontier-report.txt
 
       - name: Upload measurement report
         uses: actions/upload-artifact@v7
