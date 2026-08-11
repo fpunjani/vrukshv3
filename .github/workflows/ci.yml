@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p visual-gate/skeleton visual-gate/attachments
+          mkdir -p visual-gate/skeleton visual-gate/attachments visual-gate/leaves
           npm exec vite -- preview --host 127.0.0.1 --port 4173 > /tmp/vruksh-vite.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid || true' EXIT
@@ -74,6 +74,15 @@ jobs:
               --window-size=1600,5000 \
               --screenshot="visual-gate/attachments/count-${count}.png" \
               "http://127.0.0.1:4173/?count=${count}&soul=ash-01&attachments=1"
+
+            "$chrome" \
+              --headless \
+              --disable-gpu \
+              --no-sandbox \
+              --hide-scrollbars \
+              --window-size=1600,5000 \
+              --screenshot="visual-gate/leaves/count-${count}.png" \
+              "http://127.0.0.1:4173/?count=${count}&soul=ash-01&leaves=1"
           done
 
       - name: Upload Tree Lab visual gate
