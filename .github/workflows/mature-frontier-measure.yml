@@ -2,6 +2,9 @@ name: Mature Frontier Measure
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - v3-mature-renewal-f
 
 permissions:
   contents: read
