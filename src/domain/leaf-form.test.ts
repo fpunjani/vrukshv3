@@ -130,10 +130,11 @@ describe("V3 Leaf Form V1", () => {
 
   it("does not globally force foliage upward across visual souls", () => {
     const souls = ["ash-01", "ash-02", "ash-03", "ash-04", "ash-05", "ash-06", "ash-07", "ash-08"];
-    // The directional model is history-size independent. Sampling the same
-    // eight visual souls at 300 entries catches a global bearing bias without
-    // duplicating another 8 x 1000 replay workload beside the structural gate.
-    const history = entries(300);
+    // The directional formula does not depend on total history size. Eight
+    // visual souls at 100 entries provide 800 independent projected bearings,
+    // while the separate 1000-entry contract and browser matrices still cover
+    // the mature visual horizon without competing with the structural stress gate.
+    const history = entries(100);
 
     for (const soul of souls) {
       const forms = projectLeafForms(replayEntries(soul, history));
