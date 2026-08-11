@@ -1,5 +1,6 @@
 import { projectTree } from "./geometry";
 import { keyedRange } from "./random";
+import { deriveScaffoldBalancedMeristemFrontier } from "./mature-meristem-frontier";
 import { compareStableStrings } from "./stable-order";
 import {
   pointFrom,
@@ -28,6 +29,7 @@ const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
 const MATURE_STRUCTURE_HORIZON = 1000;
 const MATURE_TIP_STRUCTURAL_WINDOW = 64;
+const MATURE_SCAFFOLD_RESERVE_PER_LINEAGE = 4;
 const MATURE_SIDE_STRUCTURAL_WINDOW = 48;
 
 interface Candidate {
@@ -57,6 +59,7 @@ interface GrowthContext {
   matureReferenceBounds: Bounds;
   continuationParents: Set<string>;
   successorParents: Set<string>;
+  matureContinuationTipIds: ReadonlySet<string>;
   lateralParents: Set<string>;
   axisModuleCounts: Map<string, number>;
   axisCountsByOrder: Map<number, number>;
@@ -180,6 +183,13 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     .map((module) => projectedById.get(module.id))
     .filter((segment): segment is ProjectedSegment => Boolean(segment));
 
+  const matureContinuationTipIds = deriveScaffoldBalancedMeristemFrontier(
+    state.modules,
+    MATURE_STRUCTURE_HORIZON,
+    MATURE_TIP_STRUCTURAL_WINDOW,
+    MATURE_SCAFFOLD_RESERVE_PER_LINEAGE,
+  ).selectedTipIds;
+
   return {
     segments,
     projectedById,
@@ -189,6 +199,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     matureReferenceBounds,
     continuationParents,
     successorParents,
+    matureContinuationTipIds,
     lateralParents,
     axisModuleCounts,
     axisCountsByOrder,
@@ -789,10 +800,16 @@ function continuationCandidates(
     if (context.successorParents.has(parent.id)) continue;
 
     if (eventIndex > MATURE_STRUCTURE_HORIZON) {
-      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
-      if (latestAxisPosition === undefined) continue;
-      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;
-      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;
+      if (parent.order === 0) {
+        // Keep the established trunk treatment exactly as JE0. Scaffold
+        // balancing applies only to non-trunk living meristems.
+        const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
+        if (latestAxisPosition === undefined) continue;
+        const structuralDormancy = state.modules.length - 1 - latestAxisPosition;
+        if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;
+      } else if (!context.matureContinuationTipIds.has(parent.id)) {
+        continue;
+      }
     }
 
     const projection = context.projectedById.get(parent.id);
