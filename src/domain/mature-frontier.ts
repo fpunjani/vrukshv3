@@ -18,11 +18,18 @@ export interface MatureFrontierDiagnostics {
   medianLateralParentStructuralAge: number;
   p90LateralParentStructuralAge: number;
   maxLateralParentStructuralAge: number;
+  lateralParentOver50Fraction: number;
+  lateralParentOver100Fraction: number;
+  lateralParentOver200Fraction: number;
   medianContinuationDormancyGap: number;
   p90ContinuationDormancyGap: number;
   maxContinuationDormancyGap: number;
+  continuationDormancyOver50Fraction: number;
+  continuationDormancyOver100Fraction: number;
   postHorizonVerticalFraction: number;
+  postHorizonVerticalFractionByOrder: number[];
   recentVerticalFraction: number;
+  recentVerticalFractionByOrder: number[];
   legacyScaffoldModuleShare: number;
   crownWidth: number;
   crownHeight: number;
@@ -39,9 +46,13 @@ function percentile(values: readonly number[], fraction: number): number {
   return sorted[index];
 }
 
+function fractionOver(values: readonly number[], threshold: number): number {
+  if (values.length === 0) return 0;
+  return values.filter((value) => value > threshold).length / values.length;
+}
+
 function normalizedHeading(heading: number): number {
-  const wrapped = ((heading + 180) % 360 + 360) % 360 - 180;
-  return wrapped;
+  return ((heading + 180) % 360 + 360) % 360 - 180;
 }
 
 function verticalFraction(
@@ -54,6 +65,19 @@ function verticalFraction(
     return heading !== undefined && Math.abs(normalizedHeading(heading)) <= 20;
   }).length;
   return vertical / modules.length;
+}
+
+function verticalFractionByOrder(
+  modules: readonly GrowthModule[],
+  headingById: ReadonlyMap<string, number>,
+  maxOrder: number,
+): number[] {
+  return Array.from({ length: maxOrder + 1 }, (_, order) =>
+    verticalFraction(
+      modules.filter((module) => module.order === order),
+      headingById,
+    ),
+  );
 }
 
 function order1RootAxis(
@@ -191,11 +215,32 @@ export function diagnoseMatureFrontier(
       0.9,
     ),
     maxLateralParentStructuralAge: Math.max(0, ...lateralParentStructuralAges),
+    lateralParentOver50Fraction: fractionOver(lateralParentStructuralAges, 50),
+    lateralParentOver100Fraction: fractionOver(lateralParentStructuralAges, 100),
+    lateralParentOver200Fraction: fractionOver(lateralParentStructuralAges, 200),
     medianContinuationDormancyGap: percentile(continuationDormancyGaps, 0.5),
     p90ContinuationDormancyGap: percentile(continuationDormancyGaps, 0.9),
     maxContinuationDormancyGap: Math.max(0, ...continuationDormancyGaps),
+    continuationDormancyOver50Fraction: fractionOver(
+      continuationDormancyGaps,
+      50,
+    ),
+    continuationDormancyOver100Fraction: fractionOver(
+      continuationDormancyGaps,
+      100,
+    ),
     postHorizonVerticalFraction: verticalFraction(postHorizon, headingById),
+    postHorizonVerticalFractionByOrder: verticalFractionByOrder(
+      postHorizon,
+      headingById,
+      maxOrder,
+    ),
     recentVerticalFraction: verticalFraction(recentModules, headingById),
+    recentVerticalFractionByOrder: verticalFractionByOrder(
+      recentModules,
+      headingById,
+      maxOrder,
+    ),
     legacyScaffoldModuleShare:
       nonTrunkModules.length > 0
         ? modulesInLegacyScaffolds / nonTrunkModules.length
