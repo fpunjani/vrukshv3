@@ -11,7 +11,7 @@ const BASE_MATURE_OPPORTUNITY = Math.floor(
 const MATURE_GROWTH_SCALE = 2 * Math.sqrt(BASE_MATURE_OPPORTUNITY);
 
 export function createTree(soul: string): TreeState {
-  return { schemaVersion: 2, soul, growthIndex: 0, modules: [], leaves: [] };
+  return { schemaVersion: 3, soul, growthIndex: 0, modules: [], leaves: [] };
 }
 
 function compareChronology(
@@ -32,10 +32,6 @@ function matureOpportunityCount(opportunity: number): number {
 }
 
 export function shouldAttemptStructuralGrowth(eventIndex: number): boolean {
-  // Preserve the accepted visual-development tree exactly through 1000 entries.
-  // Beyond that point the existing structural engine only grows on every 12th
-  // event. Select a square-root subset of those mature opportunities so wood
-  // keeps accumulating for life without becoming linear in entry count.
   if (eventIndex <= VISUAL_STRUCTURE_HORIZON) return true;
   if (eventIndex % MATURE_STRUCTURAL_INTERVAL !== 0) return false;
 
@@ -76,9 +72,6 @@ function nextLeaf(
 }
 
 export function applyEntry(previous: TreeState, entry: Entry): TreeState {
-  // Domain-level idempotency is deliberately stronger than the future storage
-  // constraint. A retry of any previously accepted ID must never manufacture a
-  // second historical identity, even if the retry is not the current tip.
   if (previous.leaves.some((leaf) => leaf.entryId === entry.id)) return previous;
 
   const latestLeaf = previous.leaves[previous.leaves.length - 1];
@@ -138,9 +131,6 @@ export function replayEntries(
   soul: string,
   entries: readonly Entry[],
 ): TreeState {
-  // Replay is an internal reconstruction operation, so it may build one local
-  // state mutably instead of allocating every intermediate immutable prefix.
-  // The returned TreeState is still the same deterministic append-only history.
   const state = createTree(soul);
 
   for (const entry of canonicalEntries(entries)) {
