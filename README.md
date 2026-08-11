@@ -48,6 +48,8 @@ Tree Lab exposes neutral attachment marks with `?attachments=1`. They are QA mar
 
 The domain has no maximum-entry constant. Non-visual longevity QA reconstructs one organism at **3,000, 10,000, and 30,000 entries**, then appends entry 30,001. Long-life QA checks exact identity count, historical attachment validity, append-only prefixes, sublinear wood growth, broad foliage distribution, and continued growth of the same organism.
 
+30,000 is only the current stress target. Passing it does not create a maximum; later QA may move the stress horizon higher without changing the domain contract.
+
 At future rendering scales, many permanent identities may be clustered or omitted by level-of-detail without being deleted from domain history.
 
 ## Architecture
