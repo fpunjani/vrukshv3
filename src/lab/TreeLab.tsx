@@ -15,6 +15,7 @@ import { projectLeafForms, type ProjectedLeafForm } from "../domain/leaf-form";
 import type { Entry, Point, TreeState } from "../domain/types";
 
 const MILESTONES = [0, 1, 3, 10, 30, 100, 300, 1000] as const;
+const LONG_MILESTONES = [1000, 3000, 10000, 30000] as const;
 const COMPARE_SEEDS = [
   "ash-01",
   "ash-02",
@@ -45,6 +46,12 @@ function initialCount(): number {
   return Math.max(0, Math.min(1000, Math.round(raw)));
 }
 
+function initialLongCount(): number {
+  const raw = Number(params().get("count"));
+  if (!Number.isFinite(raw)) return 3000;
+  return Math.max(1000, Math.min(30000, Math.round(raw)));
+}
+
 function initialTimelineSoul(): string {
   return params().get("soul")?.trim() || "ash-01";
 }
@@ -55,6 +62,10 @@ function initialAttachmentMode(): boolean {
 
 function initialLeafMode(): boolean {
   return params().get("leaves") === "1";
+}
+
+function initialLongMode(): boolean {
+  return params().get("long") === "1";
 }
 
 function initialLodMode(): ClusterDetailLevel | null {
@@ -233,17 +244,17 @@ function TreeCard({
   count,
   state,
   viewBox,
-  showAttachments,
-  showLeaves,
-  lodMode,
+  showAttachments = false,
+  showLeaves = false,
+  lodMode = null,
 }: {
   soul: string;
   count: number;
   state: TreeState;
   viewBox: ViewBox;
-  showAttachments: boolean;
-  showLeaves: boolean;
-  lodMode: ClusterDetailLevel | null;
+  showAttachments?: boolean;
+  showLeaves?: boolean;
+  lodMode?: ClusterDetailLevel | null;
 }) {
   const primitiveCount = useMemo(
     () => (lodMode ? projectCanopyClusters(state, lodMode).length : null),
@@ -272,7 +283,103 @@ function TreeCard({
   );
 }
 
-export function TreeLab() {
+function LongHistoryLab() {
+  const [count, setCount] = useState(initialLongCount);
+  const soul = initialTimelineSoul();
+  const state = useMemo(
+    () => replayEntries(soul, makeEntries(count)),
+    [count, soul],
+  );
+  const curves = useMemo(() => projectTreeCurves(state), [state]);
+  const viewBox = useMemo(() => boundsForCurves([curves]), [curves]);
+  const mediumCount = useMemo(
+    () => projectCanopyClusters(state, "module").length,
+    [state],
+  );
+  const farCount = useMemo(
+    () => projectCanopyClusters(state, "axis").length,
+    [state],
+  );
+
+  return (
+    <main className="lab-shell long-lab-shell">
+      <header className="lab-header">
+        <div>
+          <p className="eyebrow">Vruksh V3 / long-history LOD gate</p>
+          <h1>Long-Life Canopy Lab</h1>
+          <p className="intro">
+            One organism is reconstructed once, then the exact same persistent
+            history is projected at medium and far detail. No individual 30k
+            leaf-blade render is created in this mode.
+          </p>
+        </div>
+        <div className="status-card">
+          <span>Traceable representation</span>
+          <strong>{`${count.toLocaleString()} identities → ${mediumCount.toLocaleString()} medium / ${farCount.toLocaleString()} far primitives`}</strong>
+        </div>
+      </header>
+
+      <section className="control-panel" aria-label="Long-history controls">
+        <div className="control-row">
+          <label htmlFor="long-entry-count">Entry count</label>
+          <output htmlFor="long-entry-count">{count.toLocaleString()}</output>
+        </div>
+        <input
+          id="long-entry-count"
+          type="range"
+          min="1000"
+          max="30000"
+          step="100"
+          value={count}
+          onChange={(event) => setCount(Number(event.target.value))}
+        />
+        <div className="milestone-row">
+          {LONG_MILESTONES.map((milestone) => (
+            <button
+              key={milestone}
+              type="button"
+              className={count === milestone ? "active" : ""}
+              onClick={() => setCount(milestone)}
+            >
+              {milestone.toLocaleString()}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="lab-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Same state / same view box</p>
+            <h2>Medium vs far representation</h2>
+          </div>
+          <p>
+            Both cards use one TreeState and one wood view box. A visual change
+            comes only from the deterministic representation level.
+          </p>
+        </div>
+        <div className="long-compare-grid">
+          <TreeCard
+            soul={`${soul} / medium`}
+            count={count}
+            state={state}
+            viewBox={viewBox}
+            lodMode="module"
+          />
+          <TreeCard
+            soul={`${soul} / far`}
+            count={count}
+            state={state}
+            viewBox={viewBox}
+            lodMode="axis"
+          />
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function StandardTreeLab() {
   const [count, setCount] = useState(initialCount);
   const [timelineSoul, setTimelineSoul] = useState(initialTimelineSoul);
   const [showAttachments] = useState(initialAttachmentMode);
@@ -420,4 +527,8 @@ export function TreeLab() {
       </section>
     </main>
   );
+}
+
+export function TreeLab() {
+  return initialLongMode() ? <LongHistoryLab /> : <StandardTreeLab />;
 }
