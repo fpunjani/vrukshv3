@@ -128,9 +128,12 @@ describe("V3 Leaf Form V1", () => {
     expect(first.sagBias).toBeLessThanOrEqual(0.085);
   });
 
-  it("does not globally force mature foliage upward", () => {
+  it("does not globally force foliage upward across visual souls", () => {
     const souls = ["ash-01", "ash-02", "ash-03", "ash-04", "ash-05", "ash-06", "ash-07", "ash-08"];
-    const history = entries(1000);
+    // The directional model is history-size independent. Sampling the same
+    // eight visual souls at 300 entries catches a global bearing bias without
+    // duplicating another 8 x 1000 replay workload beside the structural gate.
+    const history = entries(300);
 
     for (const soul of souls) {
       const forms = projectLeafForms(replayEntries(soul, history));
@@ -138,9 +141,6 @@ describe("V3 Leaf Form V1", () => {
       const lateralOrDown = forms.filter((form) => form.direction.y >= -0.15).length / forms.length;
       const down = forms.filter((form) => form.direction.y > 0.05).length / forms.length;
 
-      // The exact proportions are not botanical truth; they are broad guards
-      // against the previous failure where the renderer made "up" the default
-      // posture for almost the entire crown.
       expect(stronglyUp, `${soul} strongly-up fraction`).toBeLessThan(0.78);
       expect(lateralOrDown, `${soul} lateral/down fraction`).toBeGreaterThan(0.16);
       expect(down, `${soul} downward fraction`).toBeGreaterThan(0.035);
