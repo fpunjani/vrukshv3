@@ -739,6 +739,7 @@ function initialModule(
       21,
       25,
     ),
+    restDepth: 0,
   };
 }
 
@@ -791,5 +792,6 @@ export function growStructuralEvent(
     bornAtEvent: eventIndex,
     restTurn: winner.heading - parentProjection.heading,
     restLength: winner.length,
+    restDepth: 0,
   };
 }

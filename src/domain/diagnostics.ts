@@ -43,7 +43,7 @@ function validateHistory(state: TreeState): string[] {
   const leafIds = new Set<string>();
   const relationByParent = new Map<string, Set<string>>();
 
-  if (state.schemaVersion !== 2) {
+  if (state.schemaVersion !== 3) {
     errors.push(`unsupported schema version ${String(state.schemaVersion)}`);
   }
   if (state.leaves.length !== state.growthIndex) {
@@ -60,6 +60,9 @@ function validateHistory(state: TreeState): string[] {
     }
     if (!Number.isFinite(module.restTurn)) {
       errors.push(`invalid rest turn for ${module.id}`);
+    }
+    if (!Number.isFinite(module.restDepth)) {
+      errors.push(`invalid rest depth for ${module.id}`);
     }
     if (!Number.isInteger(module.order) || module.order < 0) {
       errors.push(`invalid branch order for ${module.id}`);

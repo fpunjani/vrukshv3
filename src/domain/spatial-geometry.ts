@@ -15,10 +15,11 @@ import type {
  */
 export function projectTreeSpatial(
   state: TreeState,
-  depthDeltaByModule: ReadonlyMap<string, number> = new Map(),
+  depthDeltaByModule?: ReadonlyMap<string, number>,
 ): ProjectedSpatialSegment[] {
   const planar = projectTree(state);
   const spatialById = new Map<string, ProjectedSpatialSegment>();
+  const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   const result: ProjectedSpatialSegment[] = [];
 
   for (const segment of planar) {
@@ -30,7 +31,11 @@ export function projectTreeSpatial(
     }
 
     const startDepth = parent?.endDepth ?? 0;
-    const delta = depthDeltaByModule.get(segment.id) ?? 0;
+    const module = moduleById.get(segment.id);
+    if (!module) {
+      throw new Error(`Spatial segment ${segment.id} has no growth module`);
+    }
+    const delta = depthDeltaByModule?.get(segment.id) ?? module.restDepth;
     if (!Number.isFinite(delta)) {
       throw new Error(`Non-finite depth delta for module ${segment.id}`);
     }
