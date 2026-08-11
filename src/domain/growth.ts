@@ -1,4 +1,5 @@
 import { chooseLeafAttachment } from "./foliage";
+import { compareStableStrings } from "./stable-order";
 import { growStructuralEvent } from "./structure";
 import type { Entry, EntryStatus, LeafIdentity, TreeState } from "./types";
 
@@ -11,6 +12,15 @@ const MATURE_GROWTH_SCALE = 2 * Math.sqrt(BASE_MATURE_OPPORTUNITY);
 
 export function createTree(soul: string): TreeState {
   return { schemaVersion: 2, soul, growthIndex: 0, modules: [], leaves: [] };
+}
+
+function compareChronology(
+  aCreatedAt: number,
+  aId: string,
+  bCreatedAt: number,
+  bId: string,
+): number {
+  return aCreatedAt - bCreatedAt || compareStableStrings(aId, bId);
 }
 
 function matureOpportunityCount(opportunity: number): number {
@@ -66,15 +76,23 @@ function nextLeaf(
 }
 
 export function applyEntry(previous: TreeState, entry: Entry): TreeState {
-  const latestLeaf = previous.leaves[previous.leaves.length - 1];
-  // The live append path only needs to make an immediate retry idempotent.
-  // Durable storage must enforce entry IDs as unique keys; canonical replay
-  // performs full-history de-duplication before rebuilding the organism.
-  if (latestLeaf?.entryId === entry.id) return previous;
+  // Domain-level idempotency is deliberately stronger than the future storage
+  // constraint. A retry of any previously accepted ID must never manufacture a
+  // second historical identity, even if the retry is not the current tip.
+  if (previous.leaves.some((leaf) => leaf.entryId === entry.id)) return previous;
 
-  if (latestLeaf && entry.createdAt < latestLeaf.createdAt) {
+  const latestLeaf = previous.leaves[previous.leaves.length - 1];
+  if (
+    latestLeaf &&
+    compareChronology(
+      entry.createdAt,
+      entry.id,
+      latestLeaf.createdAt,
+      latestLeaf.entryId,
+    ) < 0
+  ) {
     throw new Error(
-      `Historical entry ${entry.id} predates the current tree tip; replay the canonical history instead`,
+      `Historical entry ${entry.id} predates the current tree tip in canonical order; replay the canonical history instead`,
     );
   }
 
@@ -105,8 +123,8 @@ export function updateEntryStatus(
 }
 
 function canonicalEntries(entries: readonly Entry[]): Entry[] {
-  const sorted = [...entries].sort(
-    (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+  const sorted = [...entries].sort((a, b) =>
+    compareChronology(a.createdAt, a.id, b.createdAt, b.id),
   );
   const seen = new Set<string>();
   return sorted.filter((entry) => {
