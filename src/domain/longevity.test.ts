@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { projectCanopyClusters } from "./canopy-geometry";
+import {
+  CANOPY_LOD_POLICY,
+  entryBucketMap,
+  projectCanopyRepresentation,
+} from "./canopy-lod";
 import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
 import { diagnoseFoliage } from "./foliage-diagnostics";
 import { applyEntry, replayEntries } from "./growth";
@@ -16,6 +22,18 @@ function entry(index: number): Entry {
 const HISTORY: Entry[] = Array.from({ length: 30001 }, (_, index) =>
   entry(index + 1),
 );
+
+const LOD_BUDGETS = new Map<number, { medium: number; far: number }>([
+  // First measured implementation:
+  // 3k: 994 medium / 167 far
+  // 10k: 2017 medium / 368 far
+  // 30k: 3749 medium / 614 far
+  // Ceilings retain useful headroom without allowing a quiet return toward
+  // one render primitive per identity.
+  [3000, { medium: 1200, far: 220 }],
+  [10000, { medium: 2400, far: 450 }],
+  [30000, { medium: 4500, far: 750 }],
+]);
 
 function historicalPrefix(state: TreeState, entries: number): TreeState {
   return {
@@ -41,9 +59,6 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   }
   expect(invalidHosts).toBe(0);
 
-  // Long-life states must preserve the same structural invariants we enforce
-  // inside the 0-1000 visual-development horizon. Longevity is not allowed to
-  // become a weaker mode just because structural opportunities are sparser.
   const structure = diagnoseTree(state);
   expect(structure.invariantErrors).toEqual([]);
   expect(structure.crossings).toBe(0);
@@ -53,7 +68,6 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(Number.isFinite(structure.height)).toBe(true);
   expect(Number.isFinite(structure.aspectRatio)).toBe(true);
 
-  // Wood must keep developing, but entries must never map 1:1 to branches.
   expect(state.modules.length).toBeGreaterThan(50);
   expect(state.modules.length).toBeLessThan(expectedEntries / 4);
 
@@ -63,6 +77,60 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(foliage.maxAxisLoadFraction).toBeLessThan(0.35);
   expect(foliage.trunkLeafFraction).toBeLessThan(0.2);
   expect(foliage.leftRightImbalance).toBeLessThan(0.15);
+
+  const medium = projectCanopyRepresentation(state, "module");
+  const far = projectCanopyRepresentation(state, "axis");
+  expect(entryBucketMap(medium).size).toBe(expectedEntries);
+  expect(entryBucketMap(far).size).toBe(expectedEntries);
+  expect(medium.buckets.length).toBeLessThanOrEqual(
+    state.modules.length * 2 * CANOPY_LOD_POLICY.modulePositionBins,
+  );
+  expect(far.buckets.length).toBeLessThanOrEqual(state.modules.length * 2);
+  expect(far.buckets.length).toBeLessThanOrEqual(medium.buckets.length);
+
+  const budget = LOD_BUDGETS.get(expectedEntries);
+  if (budget) {
+    expect(medium.buckets.length, `${expectedEntries} medium LOD budget`).toBeLessThanOrEqual(
+      budget.medium,
+    );
+    expect(far.buckets.length, `${expectedEntries} far LOD budget`).toBeLessThanOrEqual(
+      budget.far,
+    );
+  }
+}
+
+function expectBucketPrefixStable(
+  earlier: TreeState,
+  later: TreeState,
+  level: "module" | "axis",
+): void {
+  const earlierMap = entryBucketMap(projectCanopyRepresentation(earlier, level));
+  const laterMap = entryBucketMap(projectCanopyRepresentation(later, level));
+  for (const [entryId, key] of earlierMap) {
+    expect(laterMap.get(entryId), `${level}:${entryId}`).toBe(key);
+  }
+}
+
+function expectLongClusterGeometry(state: TreeState): void {
+  for (const level of ["module", "axis"] as const) {
+    const semantic = projectCanopyRepresentation(state, level);
+    const clusters = projectCanopyClusters(state, level);
+    expect(clusters).toHaveLength(semantic.buckets.length);
+
+    for (const cluster of clusters) {
+      expect(Number.isFinite(cluster.center.x), `${level}:${cluster.key}:center.x`).toBe(true);
+      expect(Number.isFinite(cluster.center.y), `${level}:${cluster.key}:center.y`).toBe(true);
+      expect(Number.isFinite(cluster.direction.x), `${level}:${cluster.key}:direction.x`).toBe(true);
+      expect(Number.isFinite(cluster.direction.y), `${level}:${cluster.key}:direction.y`).toBe(true);
+      expect(Number.isFinite(cluster.length), `${level}:${cluster.key}:length`).toBe(true);
+      expect(Number.isFinite(cluster.width), `${level}:${cluster.key}:width`).toBe(true);
+      expect(Number.isFinite(cluster.depth), `${level}:${cluster.key}:depth`).toBe(true);
+      expect(cluster.length).toBeGreaterThan(0);
+      expect(cluster.width).toBeGreaterThan(0);
+      expect(cluster.memberCount).toBe(cluster.memberEntryIds.length);
+      expect(cluster.memberCount).toBeGreaterThan(0);
+    }
+  }
 }
 
 describe("V3 long-life organism", () => {
@@ -77,9 +145,15 @@ describe("V3 long-life organism", () => {
       validateLongHistory(at10000, 10000);
       validateLongHistory(at30000, 30000);
 
-      // The rendered mature wood must also remain mechanically coherent at the
-      // longevity horizon. Three samples per curve keep this as a broad safety
-      // gate rather than turning the long-history test into a rendering benchmark.
+      expectBucketPrefixStable(at3000, at10000, "module");
+      expectBucketPrefixStable(at3000, at10000, "axis");
+      expectBucketPrefixStable(at10000, at30000, "module");
+      expectBucketPrefixStable(at10000, at30000, "axis");
+
+      // Long-history cluster geometry is derived from the already-built 30k
+      // organism and stable representatives; no second history replay occurs.
+      expectLongClusterGeometry(at30000);
+
       const curved = diagnoseCurvedWood(at30000, 3);
       expect(curved.curveCrossings).toBe(0);
       expect(curved.crowdedPairs).toBe(0);
@@ -100,6 +174,9 @@ describe("V3 long-life organism", () => {
       expect(after.leaves.slice(0, at30000.leaves.length)).toEqual(at30000.leaves);
       expect(after.modules.slice(0, at30000.modules.length)).toEqual(at30000.modules);
       expect(after.leaves[30000].entryId).toBe("life-30001");
+
+      expectBucketPrefixStable(at30000, after, "module");
+      expectBucketPrefixStable(at30000, after, "axis");
     },
     60_000,
   );

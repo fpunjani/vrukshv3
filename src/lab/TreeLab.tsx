@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import {
+  projectCanopyClusters,
+  type ClusterDetailLevel,
+} from "../domain/canopy-geometry";
 import { projectFoliageMarks } from "../domain/foliage-geometry";
 import {
   outlineProjectedCurve,
@@ -11,6 +15,7 @@ import { projectLeafForms, type ProjectedLeafForm } from "../domain/leaf-form";
 import type { Entry, Point, TreeState } from "../domain/types";
 
 const MILESTONES = [0, 1, 3, 10, 30, 100, 300, 1000] as const;
+const LONG_MILESTONES = [1000, 3000, 10000, 30000] as const;
 const COMPARE_SEEDS = [
   "ash-01",
   "ash-02",
@@ -41,6 +46,12 @@ function initialCount(): number {
   return Math.max(0, Math.min(1000, Math.round(raw)));
 }
 
+function initialLongCount(): number {
+  const raw = Number(params().get("count"));
+  if (!Number.isFinite(raw)) return 3000;
+  return Math.max(1000, Math.min(30000, Math.round(raw)));
+}
+
 function initialTimelineSoul(): string {
   return params().get("soul")?.trim() || "ash-01";
 }
@@ -51,6 +62,15 @@ function initialAttachmentMode(): boolean {
 
 function initialLeafMode(): boolean {
   return params().get("leaves") === "1";
+}
+
+function initialLongMode(): boolean {
+  return params().get("long") === "1";
+}
+
+function initialLodMode(): ClusterDetailLevel | null {
+  const value = params().get("lod");
+  return value === "module" || value === "axis" ? value : null;
 }
 
 function makeEntries(count: number): Entry[] {
@@ -112,33 +132,45 @@ function leafPath(leaf: ProjectedLeafForm): string {
   ].join(" ");
 }
 
+function directionAngle(direction: Point): number {
+  return (Math.atan2(direction.y, direction.x) * 180) / Math.PI;
+}
+
 function Skeleton({
   state,
   viewBox,
   showAttachments,
   showLeaves,
+  lodMode,
 }: {
   state: TreeState;
   viewBox: ViewBox;
   showAttachments: boolean;
   showLeaves: boolean;
+  lodMode: ClusterDetailLevel | null;
 }) {
   const curves = useMemo(() => projectTreeCurves(state), [state]);
   const marks = useMemo(
-    () => (showAttachments ? projectFoliageMarks(state) : []),
-    [showAttachments, state],
+    () => (showAttachments && !lodMode ? projectFoliageMarks(state) : []),
+    [lodMode, showAttachments, state],
   );
   const leaves = useMemo(
-    () => (showLeaves ? projectLeafForms(state) : []),
-    [showLeaves, state],
+    () => (showLeaves && !lodMode ? projectLeafForms(state) : []),
+    [lodMode, showLeaves, state],
+  );
+  const clusters = useMemo(
+    () => (lodMode ? projectCanopyClusters(state, lodMode) : []),
+    [lodMode, state],
   );
   const width = viewBox.maxX - viewBox.minX;
   const height = viewBox.maxY - viewBox.minY;
-  const modeLabel = showLeaves
-    ? " with Leaf Form V1"
-    : showAttachments
-      ? " with foliage attachment marks"
-      : "";
+  const modeLabel = lodMode
+    ? ` with ${lodMode} canopy LOD`
+    : showLeaves
+      ? " with Leaf Form V1"
+      : showAttachments
+        ? " with foliage attachment marks"
+        : "";
 
   return (
     <svg
@@ -148,6 +180,22 @@ function Skeleton({
       aria-label={`Tree skeleton after ${state.growthIndex} growth events${modeLabel}`}
     >
       <line x1={-500} y1={0} x2={500} y2={0} className="ground" />
+
+      {[...clusters]
+        .sort((a, b) => a.depth - b.depth || a.key.localeCompare(b.key))
+        .map((cluster) => (
+          <ellipse
+            key={cluster.key}
+            cx={cluster.center.x}
+            cy={cluster.center.y}
+            rx={cluster.length / 2}
+            ry={cluster.width / 2}
+            transform={`rotate(${directionAngle(cluster.direction)} ${cluster.center.x} ${cluster.center.y})`}
+            className={`canopy-cluster canopy-cluster-${cluster.level}`}
+          >
+            <title>{`${cluster.memberCount} permanent identities / ${cluster.key}`}</title>
+          </ellipse>
+        ))}
 
       {leaves.map((leaf) => (
         <g key={leaf.entryId} className={`leaf-form leaf-order-${Math.min(4, leaf.order)}`}>
@@ -196,16 +244,23 @@ function TreeCard({
   count,
   state,
   viewBox,
-  showAttachments,
-  showLeaves,
+  showAttachments = false,
+  showLeaves = false,
+  lodMode = null,
 }: {
   soul: string;
   count: number;
   state: TreeState;
   viewBox: ViewBox;
-  showAttachments: boolean;
-  showLeaves: boolean;
+  showAttachments?: boolean;
+  showLeaves?: boolean;
+  lodMode?: ClusterDetailLevel | null;
 }) {
+  const primitiveCount = useMemo(
+    () => (lodMode ? projectCanopyClusters(state, lodMode).length : null),
+    [lodMode, state],
+  );
+
   return (
     <article className="tree-card">
       <div className="tree-card-meta">
@@ -217,20 +272,119 @@ function TreeCard({
         viewBox={viewBox}
         showAttachments={showAttachments}
         showLeaves={showLeaves}
+        lodMode={lodMode}
       />
       <div className="tree-stats">
         <span>{state.modules.length} structural modules</span>
         <span>{state.leaves.length} persistent leaf identities</span>
+        {primitiveCount !== null ? <span>{primitiveCount} visible LOD primitives</span> : null}
       </div>
     </article>
   );
 }
 
-export function TreeLab() {
+function LongHistoryLab() {
+  const [count, setCount] = useState(initialLongCount);
+  const soul = initialTimelineSoul();
+  const state = useMemo(
+    () => replayEntries(soul, makeEntries(count)),
+    [count, soul],
+  );
+  const curves = useMemo(() => projectTreeCurves(state), [state]);
+  const viewBox = useMemo(() => boundsForCurves([curves]), [curves]);
+  const mediumCount = useMemo(
+    () => projectCanopyClusters(state, "module").length,
+    [state],
+  );
+  const farCount = useMemo(
+    () => projectCanopyClusters(state, "axis").length,
+    [state],
+  );
+
+  return (
+    <main className="lab-shell long-lab-shell">
+      <header className="lab-header">
+        <div>
+          <p className="eyebrow">Vruksh V3 / long-history LOD gate</p>
+          <h1>Long-Life Canopy Lab</h1>
+          <p className="intro">
+            One organism is reconstructed once, then the exact same persistent
+            history is projected at medium and far detail. No individual 30k
+            leaf-blade render is created in this mode.
+          </p>
+        </div>
+        <div className="status-card">
+          <span>Traceable representation</span>
+          <strong>{`${count.toLocaleString()} identities → ${mediumCount.toLocaleString()} medium / ${farCount.toLocaleString()} far primitives`}</strong>
+        </div>
+      </header>
+
+      <section className="control-panel" aria-label="Long-history controls">
+        <div className="control-row">
+          <label htmlFor="long-entry-count">Entry count</label>
+          <output htmlFor="long-entry-count">{count.toLocaleString()}</output>
+        </div>
+        <input
+          id="long-entry-count"
+          type="range"
+          min="1000"
+          max="30000"
+          step="100"
+          value={count}
+          onChange={(event) => setCount(Number(event.target.value))}
+        />
+        <div className="milestone-row">
+          {LONG_MILESTONES.map((milestone) => (
+            <button
+              key={milestone}
+              type="button"
+              className={count === milestone ? "active" : ""}
+              onClick={() => setCount(milestone)}
+            >
+              {milestone.toLocaleString()}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="lab-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Same state / same view box</p>
+            <h2>Medium vs far representation</h2>
+          </div>
+          <p>
+            Both cards use one TreeState and one wood view box. A visual change
+            comes only from the deterministic representation level.
+          </p>
+        </div>
+        <div className="long-compare-grid">
+          <TreeCard
+            soul={`${soul} / medium`}
+            count={count}
+            state={state}
+            viewBox={viewBox}
+            lodMode="module"
+          />
+          <TreeCard
+            soul={`${soul} / far`}
+            count={count}
+            state={state}
+            viewBox={viewBox}
+            lodMode="axis"
+          />
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function StandardTreeLab() {
   const [count, setCount] = useState(initialCount);
   const [timelineSoul, setTimelineSoul] = useState(initialTimelineSoul);
   const [showAttachments] = useState(initialAttachmentMode);
   const [showLeaves] = useState(initialLeafMode);
+  const [lodMode] = useState<ClusterDetailLevel | null>(initialLodMode);
 
   const identityStates = useMemo(
     () =>
@@ -257,16 +411,20 @@ export function TreeLab() {
     [timelineStates],
   );
 
-  const modeTitle = showLeaves
-    ? "Leaf Form V1"
-    : showAttachments
-      ? "Attachment debug mode"
-      : "Current rule";
-  const modeDescription = showLeaves
-    ? "Every visible blade is derived from one permanent identity and its historical wood attachment."
-    : showAttachments
-      ? "Each dot is one permanent entry identity attached to historical wood."
-      : "N + 1 may extend N. It may never rewrite N's history.";
+  const modeTitle = lodMode
+    ? `${lodMode === "module" ? "Medium" : "Far"} canopy LOD`
+    : showLeaves
+      ? "Leaf Form V1"
+      : showAttachments
+        ? "Attachment debug mode"
+        : "Current rule";
+  const modeDescription = lodMode
+    ? "Every diagnostic mass is a stable traceable bucket of permanent identities; accepted wood remains visible on top."
+    : showLeaves
+      ? "Every visible blade is derived from one permanent identity and its historical wood attachment."
+      : showAttachments
+        ? "Each dot is one permanent entry identity attached to historical wood."
+        : "N + 1 may extend N. It may never rewrite N's history.";
 
   return (
     <main className="lab-shell">
@@ -276,7 +434,7 @@ export function TreeLab() {
           <h1>Tree Lab</h1>
           <p className="intro">
             Historical topology and foliage attachment are persistent. Curved
-            wood, debug marks, and Leaf Form V1 are deterministic projections.
+            wood, Leaf Form V1, and canopy LOD are deterministic projections.
             Shared framing prevents auto-fit from hiding weak trees or canopies.
           </p>
         </div>
@@ -332,6 +490,7 @@ export function TreeLab() {
               viewBox={identityViewBox}
               showAttachments={showAttachments}
               showLeaves={showLeaves}
+              lodMode={lodMode}
             />
           ))}
         </div>
@@ -361,10 +520,15 @@ export function TreeLab() {
               viewBox={timelineViewBox}
               showAttachments={showAttachments}
               showLeaves={showLeaves}
+              lodMode={lodMode}
             />
           ))}
         </div>
       </section>
     </main>
   );
+}
+
+export function TreeLab() {
+  return initialLongMode() ? <LongHistoryLab /> : <StandardTreeLab />;
 }
