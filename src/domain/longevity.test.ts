@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { projectCanopyClusters } from "./canopy-geometry";
 import {
   CANOPY_LOD_POLICY,
   entryBucketMap,
@@ -110,6 +111,28 @@ function expectBucketPrefixStable(
   }
 }
 
+function expectLongClusterGeometry(state: TreeState): void {
+  for (const level of ["module", "axis"] as const) {
+    const semantic = projectCanopyRepresentation(state, level);
+    const clusters = projectCanopyClusters(state, level);
+    expect(clusters).toHaveLength(semantic.buckets.length);
+
+    for (const cluster of clusters) {
+      expect(Number.isFinite(cluster.center.x), `${level}:${cluster.key}:center.x`).toBe(true);
+      expect(Number.isFinite(cluster.center.y), `${level}:${cluster.key}:center.y`).toBe(true);
+      expect(Number.isFinite(cluster.direction.x), `${level}:${cluster.key}:direction.x`).toBe(true);
+      expect(Number.isFinite(cluster.direction.y), `${level}:${cluster.key}:direction.y`).toBe(true);
+      expect(Number.isFinite(cluster.length), `${level}:${cluster.key}:length`).toBe(true);
+      expect(Number.isFinite(cluster.width), `${level}:${cluster.key}:width`).toBe(true);
+      expect(Number.isFinite(cluster.depth), `${level}:${cluster.key}:depth`).toBe(true);
+      expect(cluster.length).toBeGreaterThan(0);
+      expect(cluster.width).toBeGreaterThan(0);
+      expect(cluster.memberCount).toBe(cluster.memberEntryIds.length);
+      expect(cluster.memberCount).toBeGreaterThan(0);
+    }
+  }
+}
+
 describe("V3 long-life organism", () => {
   it(
     "reconstructs one organism through 30000 entries and appends entry 30001 without rewriting history",
@@ -126,6 +149,10 @@ describe("V3 long-life organism", () => {
       expectBucketPrefixStable(at3000, at10000, "axis");
       expectBucketPrefixStable(at10000, at30000, "module");
       expectBucketPrefixStable(at10000, at30000, "axis");
+
+      // Long-history cluster geometry is derived from the already-built 30k
+      // organism and stable representatives; no second history replay occurs.
+      expectLongClusterGeometry(at30000);
 
       const curved = diagnoseCurvedWood(at30000, 3);
       expect(curved.curveCrossings).toBe(0);
