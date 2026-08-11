@@ -37,7 +37,7 @@ const LOD_BUDGETS = new Map<number, { medium: number; far: number }>([
 
 function historicalPrefix(state: TreeState, entries: number): TreeState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     soul: state.soul,
     growthIndex: entries,
     modules: state.modules.filter((module) => module.bornAtEvent <= entries),
@@ -45,8 +45,29 @@ function historicalPrefix(state: TreeState, entries: number): TreeState {
   };
 }
 
+function validateRenewalHistory(state: TreeState): void {
+  const moduleById = new Map(state.modules.map((module) => [module.id, module]));
+
+  for (const module of state.modules) {
+    if (module.relation !== "renewal") continue;
+    expect(module.bornAtEvent, `renewal ${module.id} mature birth`).toBeGreaterThan(1000);
+    expect(module.order, `renewal ${module.id} fine order`).toBe(4);
+    expect(module.parentId, `renewal ${module.id} parent`).not.toBeNull();
+
+    const parent = module.parentId ? moduleById.get(module.parentId) : undefined;
+    expect(parent, `renewal ${module.id} parent exists`).toBeDefined();
+    expect(parent?.order, `renewal ${module.id} same tier`).toBe(4);
+    expect(module.axisId, `renewal ${module.id} new axis`).not.toBe(parent?.axisId);
+  }
+
+  expect(
+    state.modules.reduce((max, module) => Math.max(max, module.order), 0),
+    "mature renewal must keep hierarchy bounded",
+  ).toBeLessThanOrEqual(4);
+}
+
 function validateLongHistory(state: TreeState, expectedEntries: number): void {
-  expect(state.schemaVersion).toBe(2);
+  expect(state.schemaVersion).toBe(3);
   expect(state.growthIndex).toBe(expectedEntries);
   expect(state.leaves).toHaveLength(expectedEntries);
   expect(new Set(state.leaves.map((leaf) => leaf.entryId)).size).toBe(expectedEntries);
@@ -67,6 +88,7 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(Number.isFinite(structure.width)).toBe(true);
   expect(Number.isFinite(structure.height)).toBe(true);
   expect(Number.isFinite(structure.aspectRatio)).toBe(true);
+  validateRenewalHistory(state);
 
   expect(state.modules.length).toBeGreaterThan(50);
   expect(state.modules.length).toBeLessThan(expectedEntries / 4);
@@ -144,6 +166,10 @@ describe("V3 long-life organism", () => {
       validateLongHistory(at3000, 3000);
       validateLongHistory(at10000, 10000);
       validateLongHistory(at30000, 30000);
+      expect(
+        at30000.modules.some((module) => module.relation === "renewal"),
+        "30k organism should exercise mature fine-wood renewal",
+      ).toBe(true);
 
       expectBucketPrefixStable(at3000, at10000, "module");
       expectBucketPrefixStable(at3000, at10000, "axis");
