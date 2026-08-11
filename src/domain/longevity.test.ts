@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { diagnoseFoliage } from "./foliage-diagnostics";
-import { applyEntry, createTree } from "./growth";
+import { applyEntry, replayEntries } from "./growth";
 import type { Entry, TreeState } from "./types";
-
-const CHECKPOINTS = new Set([3000, 10000, 30000]);
 
 function entry(index: number): Entry {
   return {
@@ -13,6 +11,10 @@ function entry(index: number): Entry {
     status: "open",
   };
 }
+
+const HISTORY: Entry[] = Array.from({ length: 30001 }, (_, index) =>
+  entry(index + 1),
+);
 
 function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(state.schemaVersion).toBe(2);
@@ -44,47 +46,29 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
 
 describe("V3 long-life organism", () => {
   it(
-    "continues as the same append-only organism through 30000 entries",
+    "reconstructs one organism through 30000 entries and appends entry 30001 without rewriting history",
     () => {
-      let state = createTree("longevity-soul");
-      let at3000: TreeState | undefined;
-      let at10000: TreeState | undefined;
-      let previousModuleCount = 0;
+      const at3000 = replayEntries("longevity-soul", HISTORY.slice(0, 3000));
+      const at10000 = replayEntries("longevity-soul", HISTORY.slice(0, 10000));
+      const at30000 = replayEntries("longevity-soul", HISTORY.slice(0, 30000));
 
-      for (let index = 1; index <= 30000; index += 1) {
-        state = applyEntry(state, entry(index));
-        if (!CHECKPOINTS.has(index)) continue;
+      validateLongHistory(at3000, 3000);
+      validateLongHistory(at10000, 10000);
+      validateLongHistory(at30000, 30000);
 
-        validateLongHistory(state, index);
-        expect(state.modules.length).toBeGreaterThan(previousModuleCount);
-        previousModuleCount = state.modules.length;
+      expect(at10000.modules.length).toBeGreaterThan(at3000.modules.length);
+      expect(at30000.modules.length).toBeGreaterThan(at10000.modules.length);
 
-        if (index === 3000) {
-          at3000 = structuredClone(state);
-        }
+      expect(at10000.leaves.slice(0, at3000.leaves.length)).toEqual(at3000.leaves);
+      expect(at10000.modules.slice(0, at3000.modules.length)).toEqual(at3000.modules);
+      expect(at30000.leaves.slice(0, at10000.leaves.length)).toEqual(at10000.leaves);
+      expect(at30000.modules.slice(0, at10000.modules.length)).toEqual(at10000.modules);
 
-        if (index === 10000) {
-          expect(at3000).toBeDefined();
-          if (at3000) {
-            expect(state.leaves.slice(0, at3000.leaves.length)).toEqual(at3000.leaves);
-            expect(state.modules.slice(0, at3000.modules.length)).toEqual(at3000.modules);
-          }
-          at10000 = structuredClone(state);
-        }
-
-        if (index === 30000) {
-          expect(at3000).toBeDefined();
-          expect(at10000).toBeDefined();
-          if (at3000) {
-            expect(state.leaves.slice(0, at3000.leaves.length)).toEqual(at3000.leaves);
-            expect(state.modules.slice(0, at3000.modules.length)).toEqual(at3000.modules);
-          }
-          if (at10000) {
-            expect(state.leaves.slice(0, at10000.leaves.length)).toEqual(at10000.leaves);
-            expect(state.modules.slice(0, at10000.modules.length)).toEqual(at10000.modules);
-          }
-        }
-      }
+      const after = applyEntry(at30000, HISTORY[30000]);
+      expect(after.growthIndex).toBe(30001);
+      expect(after.leaves.slice(0, at30000.leaves.length)).toEqual(at30000.leaves);
+      expect(after.modules.slice(0, at30000.modules.length)).toEqual(at30000.modules);
+      expect(after.leaves[30000].entryId).toBe("life-30001");
     },
     60_000,
   );
