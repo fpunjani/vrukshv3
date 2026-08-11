@@ -1,0 +1,44 @@
+name: JE1 Generated Frontier Measure
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-je1-balanced-meristems
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.event.head_commit.message == 'Measure generated JE1 frontier once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Measure generated frontier
+        shell: bash
+        env:
+          VITE_JE1_FRONTIER_BALANCE_MEASURE: "1"
+        run: |
+          set -euo pipefail
+          npm exec -- vitest run src/domain/je1-frontier-balance.measure.test.ts --reporter=verbose 2>&1 | tee je1-frontier-report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: je1-frontier-report
+          path: je1-frontier-report.txt
+          if-no-files-found: error
+          retention-days: 14
