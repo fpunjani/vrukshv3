@@ -70,8 +70,10 @@ Before attractive leaves begin, tests must prove:
 11. A 1,000-entry history retains exactly 1,000 identities and attachments and remains the primary visual-development milestone.
 12. Attachment load is not pathologically concentrated on one module or axis across the regression set.
 13. Existing skeleton/crown/mechanics gates remain green.
-14. One continuous long-life contract must remain valid at 3,000, 10,000, and 30,000 entries, with entry 30,001 extending—not rewriting—the same organism.
+14. Long-life QA must remain valid at 3,000, 10,000, and 30,000 entries, with entry 30,001 extending—not rewriting—the same organism.
 15. Long-history wood growth remains sublinear relative to entry count.
+
+The 30,000-entry checkpoint is deliberately only a current stress target. Passing it does not create a maximum; future stress gates can move higher without changing identity semantics.
 
 ## Required visual diagnostic before leaf art
 
