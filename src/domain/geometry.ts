@@ -112,6 +112,10 @@ function endThicknessBySegment(
   return result;
 }
 
+function isForkRelation(relation: GrowthModule["relation"]): boolean {
+  return relation === "lateral" || relation === "renewal";
+}
+
 function curveHandleLength(
   segment: ProjectedSegment,
   relation: GrowthModule["relation"],
@@ -119,7 +123,7 @@ function curveHandleLength(
   atStart: boolean,
 ): number {
   const baseScale = atStart
-    ? relation === "lateral"
+    ? isForkRelation(relation)
       ? 0.17
       : 0.24
     : 0.24;
@@ -171,7 +175,7 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
     let startTangent = segment.heading;
     if (module.relation === "continuation" && parentEndTangent !== undefined) {
       startTangent = parentEndTangent;
-    } else if (module.relation === "lateral" && parentSegment) {
+    } else if (isForkRelation(module.relation) && parentSegment) {
       startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);
     }
 
@@ -196,7 +200,7 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       startThickness = segment.thickness * 1.14;
     } else if (module.relation === "continuation" && parentCurve) {
       startThickness = parentCurve.endThickness;
-    } else if (module.relation === "lateral" && parentCurve) {
+    } else if (isForkRelation(module.relation) && parentCurve) {
       startThickness = Math.min(
         segment.thickness * 1.05,
         parentCurve.endThickness * 0.72,

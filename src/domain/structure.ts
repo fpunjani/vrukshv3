@@ -15,6 +15,9 @@ const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
+const MATURE_STRUCTURE_HORIZON = 1000;
+const MATURE_TIP_STRUCTURAL_WINDOW = 64;
+const MATURE_SIDE_STRUCTURAL_WINDOW = 48;
 
 interface Candidate {
   parent: GrowthModule;
@@ -43,6 +46,7 @@ interface GrowthContext {
   axisCountsByOrder: Map<number, number>;
   establishedFiveByOrder: Map<number, number>;
   lateralFromAxisCounts: Map<string, number>;
+  modulePositions: Map<string, number>;
   latestAxisModulePositions: Map<string, number>;
   latestLateralFromAxisPositions: Map<string, number>;
   axisTips: ProjectedSegment[];
@@ -83,6 +87,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   const axisModuleCounts = new Map<string, number>();
   const axisOrderCounts = new Map<number, Map<string, number>>();
   const lateralFromAxisCounts = new Map<string, number>();
+  const modulePositions = new Map<string, number>();
   const latestAxisModulePositions = new Map<string, number>();
   const latestLateralFromAxisPositions = new Map<string, number>();
   const latestFirstOrderModuleByAxis = new Map<string, GrowthModule>();
@@ -93,6 +98,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     const projection = projectedById.get(module.id);
 
     axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);
+    modulePositions.set(module.id, index);
     latestAxisModulePositions.set(module.axisId, index);
 
     if (!axisRootHeadings.has(module.axisId) && projection) {
@@ -111,7 +117,10 @@ function buildGrowthContext(state: TreeState): GrowthContext {
       continuationParents.add(module.parentId);
     }
 
-    if (module.parentId && module.relation === "lateral") {
+    if (
+      module.parentId &&
+      (module.relation === "lateral" || module.relation === "renewal")
+    ) {
       lateralParents.add(module.parentId);
       const parentAxis = moduleById.get(module.parentId)?.axisId;
       if (parentAxis) {
@@ -154,6 +163,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     axisCountsByOrder,
     establishedFiveByOrder,
     lateralFromAxisCounts,
+    modulePositions,
     latestAxisModulePositions,
     latestLateralFromAxisPositions,
     axisTips,
@@ -594,6 +604,13 @@ function continuationCandidates(
     if (parent.order > MAX_ORDER) continue;
     if (context.continuationParents.has(parent.id)) continue;
 
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
+      if (latestAxisPosition === undefined) continue;
+      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;
+      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;
+    }
+
     const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
 
@@ -663,6 +680,16 @@ function lateralCandidates(
     if (!context.continuationParents.has(parent.id)) continue;
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
 
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      // Mature ordinary growth does not create new primary scaffolds from old
+      // trunk buds. Side growth stays local to recent living-crown wood.
+      if (parent.order === 0) continue;
+      const parentPosition = context.modulePositions.get(parent.id);
+      if (parentPosition === undefined) continue;
+      const structuralAge = state.modules.length - 1 - parentPosition;
+      if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;
+    }
+
     const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
     if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
       continue;
@@ -701,6 +728,76 @@ function lateralCandidates(
           relation: "lateral",
           axisId: `axis-${eventIndex}`,
           order,
+          heading,
+          length,
+        },
+        traits,
+      );
+      if (scored) result.push(scored);
+    }
+  }
+
+  return result;
+}
+
+function renewalCandidates(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  traits: TreeTraits,
+): Candidate[] {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];
+
+  const result: Candidate[] = [];
+
+  for (const parent of state.modules) {
+    if (parent.order !== MAX_ORDER) continue;
+    if (context.lateralParents.has(parent.id)) continue;
+    if (!context.continuationParents.has(parent.id)) continue;
+    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
+
+    const parentPosition = context.modulePositions.get(parent.id);
+    if (parentPosition === undefined) continue;
+    const structuralAge = state.modules.length - 1 - parentPosition;
+    if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;
+
+    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
+    if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
+      continue;
+    }
+
+    const projection = context.projectedById.get(parent.id);
+    if (!projection) continue;
+
+    const divergence = lateralDivergence(
+      state,
+      eventIndex,
+      parent,
+      parent.order,
+      traits,
+    );
+    const length = candidateLength(
+      state,
+      context,
+      eventIndex,
+      parent,
+      "renewal",
+      parent.order,
+      traits,
+    );
+
+    for (const side of [-1, 1] as const) {
+      const rawHeading = projection.heading + side * divergence;
+      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));
+      const scored = scoreCandidate(
+        state,
+        context,
+        eventIndex,
+        {
+          parent,
+          relation: "renewal",
+          axisId: `axis-${eventIndex}`,
+          order: parent.order,
           heading,
           length,
         },
@@ -760,6 +857,11 @@ export function growStructuralEvent(
     candidates = candidates.concat(
       lateralCandidates(state, context, eventIndex, traits),
     );
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      candidates = candidates.concat(
+        renewalCandidates(state, context, eventIndex, traits),
+      );
+    }
   } else {
     candidates = candidates.filter(
       (candidate) =>
