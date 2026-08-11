@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import {
+  projectCanopyClusters,
+  type ClusterDetailLevel,
+} from "../domain/canopy-geometry";
 import { projectFoliageMarks } from "../domain/foliage-geometry";
 import {
   outlineProjectedCurve,
@@ -51,6 +55,11 @@ function initialAttachmentMode(): boolean {
 
 function initialLeafMode(): boolean {
   return params().get("leaves") === "1";
+}
+
+function initialLodMode(): ClusterDetailLevel | null {
+  const value = params().get("lod");
+  return value === "module" || value === "axis" ? value : null;
 }
 
 function makeEntries(count: number): Entry[] {
@@ -112,33 +121,45 @@ function leafPath(leaf: ProjectedLeafForm): string {
   ].join(" ");
 }
 
+function directionAngle(direction: Point): number {
+  return (Math.atan2(direction.y, direction.x) * 180) / Math.PI;
+}
+
 function Skeleton({
   state,
   viewBox,
   showAttachments,
   showLeaves,
+  lodMode,
 }: {
   state: TreeState;
   viewBox: ViewBox;
   showAttachments: boolean;
   showLeaves: boolean;
+  lodMode: ClusterDetailLevel | null;
 }) {
   const curves = useMemo(() => projectTreeCurves(state), [state]);
   const marks = useMemo(
-    () => (showAttachments ? projectFoliageMarks(state) : []),
-    [showAttachments, state],
+    () => (showAttachments && !lodMode ? projectFoliageMarks(state) : []),
+    [lodMode, showAttachments, state],
   );
   const leaves = useMemo(
-    () => (showLeaves ? projectLeafForms(state) : []),
-    [showLeaves, state],
+    () => (showLeaves && !lodMode ? projectLeafForms(state) : []),
+    [lodMode, showLeaves, state],
+  );
+  const clusters = useMemo(
+    () => (lodMode ? projectCanopyClusters(state, lodMode) : []),
+    [lodMode, state],
   );
   const width = viewBox.maxX - viewBox.minX;
   const height = viewBox.maxY - viewBox.minY;
-  const modeLabel = showLeaves
-    ? " with Leaf Form V1"
-    : showAttachments
-      ? " with foliage attachment marks"
-      : "";
+  const modeLabel = lodMode
+    ? ` with ${lodMode} canopy LOD`
+    : showLeaves
+      ? " with Leaf Form V1"
+      : showAttachments
+        ? " with foliage attachment marks"
+        : "";
 
   return (
     <svg
@@ -148,6 +169,22 @@ function Skeleton({
       aria-label={`Tree skeleton after ${state.growthIndex} growth events${modeLabel}`}
     >
       <line x1={-500} y1={0} x2={500} y2={0} className="ground" />
+
+      {[...clusters]
+        .sort((a, b) => a.depth - b.depth || a.key.localeCompare(b.key))
+        .map((cluster) => (
+          <ellipse
+            key={cluster.key}
+            cx={cluster.center.x}
+            cy={cluster.center.y}
+            rx={cluster.length / 2}
+            ry={cluster.width / 2}
+            transform={`rotate(${directionAngle(cluster.direction)} ${cluster.center.x} ${cluster.center.y})`}
+            className={`canopy-cluster canopy-cluster-${cluster.level}`}
+          >
+            <title>{`${cluster.memberCount} permanent identities / ${cluster.key}`}</title>
+          </ellipse>
+        ))}
 
       {leaves.map((leaf) => (
         <g key={leaf.entryId} className={`leaf-form leaf-order-${Math.min(4, leaf.order)}`}>
@@ -198,6 +235,7 @@ function TreeCard({
   viewBox,
   showAttachments,
   showLeaves,
+  lodMode,
 }: {
   soul: string;
   count: number;
@@ -205,7 +243,13 @@ function TreeCard({
   viewBox: ViewBox;
   showAttachments: boolean;
   showLeaves: boolean;
+  lodMode: ClusterDetailLevel | null;
 }) {
+  const primitiveCount = useMemo(
+    () => (lodMode ? projectCanopyClusters(state, lodMode).length : null),
+    [lodMode, state],
+  );
+
   return (
     <article className="tree-card">
       <div className="tree-card-meta">
@@ -217,10 +261,12 @@ function TreeCard({
         viewBox={viewBox}
         showAttachments={showAttachments}
         showLeaves={showLeaves}
+        lodMode={lodMode}
       />
       <div className="tree-stats">
         <span>{state.modules.length} structural modules</span>
         <span>{state.leaves.length} persistent leaf identities</span>
+        {primitiveCount !== null ? <span>{primitiveCount} visible LOD primitives</span> : null}
       </div>
     </article>
   );
@@ -231,6 +277,7 @@ export function TreeLab() {
   const [timelineSoul, setTimelineSoul] = useState(initialTimelineSoul);
   const [showAttachments] = useState(initialAttachmentMode);
   const [showLeaves] = useState(initialLeafMode);
+  const [lodMode] = useState<ClusterDetailLevel | null>(initialLodMode);
 
   const identityStates = useMemo(
     () =>
@@ -257,16 +304,20 @@ export function TreeLab() {
     [timelineStates],
   );
 
-  const modeTitle = showLeaves
-    ? "Leaf Form V1"
-    : showAttachments
-      ? "Attachment debug mode"
-      : "Current rule";
-  const modeDescription = showLeaves
-    ? "Every visible blade is derived from one permanent identity and its historical wood attachment."
-    : showAttachments
-      ? "Each dot is one permanent entry identity attached to historical wood."
-      : "N + 1 may extend N. It may never rewrite N's history.";
+  const modeTitle = lodMode
+    ? `${lodMode === "module" ? "Medium" : "Far"} canopy LOD`
+    : showLeaves
+      ? "Leaf Form V1"
+      : showAttachments
+        ? "Attachment debug mode"
+        : "Current rule";
+  const modeDescription = lodMode
+    ? "Every diagnostic mass is a stable traceable bucket of permanent identities; accepted wood remains visible on top."
+    : showLeaves
+      ? "Every visible blade is derived from one permanent identity and its historical wood attachment."
+      : showAttachments
+        ? "Each dot is one permanent entry identity attached to historical wood."
+        : "N + 1 may extend N. It may never rewrite N's history.";
 
   return (
     <main className="lab-shell">
@@ -276,7 +327,7 @@ export function TreeLab() {
           <h1>Tree Lab</h1>
           <p className="intro">
             Historical topology and foliage attachment are persistent. Curved
-            wood, debug marks, and Leaf Form V1 are deterministic projections.
+            wood, Leaf Form V1, and canopy LOD are deterministic projections.
             Shared framing prevents auto-fit from hiding weak trees or canopies.
           </p>
         </div>
@@ -332,6 +383,7 @@ export function TreeLab() {
               viewBox={identityViewBox}
               showAttachments={showAttachments}
               showLeaves={showLeaves}
+              lodMode={lodMode}
             />
           ))}
         </div>
@@ -361,6 +413,7 @@ export function TreeLab() {
               viewBox={timelineViewBox}
               showAttachments={showAttachments}
               showLeaves={showLeaves}
+              lodMode={lodMode}
             />
           ))}
         </div>
