@@ -34,11 +34,9 @@ export interface ProjectedLeafForm {
 
 export function deriveLeafFamilyTraits(soul: string): LeafFamilyTraits {
   return {
-    baseLength: keyedRange(soul, "leaf-family:length", 5.4, 6.8),
-    widthRatio: keyedRange(soul, "leaf-family:width-ratio", 0.3, 0.4),
-    petioleScale: keyedRange(soul, "leaf-family:petiole", 1.05, 1.6),
-    // A real foliage-bearing twig carries leaves partly along its growth
-    // direction. Normal-dominant bearing produces a synthetic fishbone.
+    baseLength: keyedRange(soul, "leaf-family:length", 7.4, 9.2),
+    widthRatio: keyedRange(soul, "leaf-family:width-ratio", 0.32, 0.43),
+    petioleScale: keyedRange(soul, "leaf-family:petiole", 1.2, 1.75),
     forwardBias: keyedRange(soul, "leaf-family:forward-bias", 0.52, 0.66),
     lightBias: keyedRange(soul, "leaf-family:light-bias", 0.1, 0.22),
     tipTension: keyedRange(soul, "leaf-family:tip-tension", 0.52, 0.7),
@@ -82,18 +80,20 @@ function combine(
 }
 
 function orderLengthScale(order: number): number {
-  if (order <= 0) return 0.7;
-  if (order === 1) return 0.86;
+  // Early trunk identities remain visible but modest. The actual canopy-bearing
+  // orders are allowed enough blade area to occupy the space around sparse wood.
+  if (order <= 0) return 0.58;
+  if (order === 1) return 0.78;
   if (order === 2) return 1;
-  if (order === 3) return 1.05;
-  return 0.98;
+  if (order === 3) return 1.06;
+  return 1;
 }
 
 function orderPetioleScale(order: number): number {
-  if (order <= 0) return 0.76;
-  if (order === 1) return 0.9;
+  if (order <= 0) return 0.72;
+  if (order === 1) return 0.88;
   if (order === 2) return 1;
-  if (order === 3) return 1.04;
+  if (order === 3) return 1.05;
   return 1;
 }
 
@@ -122,33 +122,30 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
       forwardBias,
       lightBias,
     );
-    const angleJitter = keyedRange(state.soul, `${key}:angle`, -16, 16);
+    const angleJitter = keyedRange(state.soul, `${key}:angle`, -22, 22);
     let direction = normalize(rotate(baseDirection, angleJitter));
 
-    // The petiole still originates on the stored side, but its blade is free to
-    // sweep forward toward light. Only prevent a true side inversion rather
-    // than forcing every leaf back toward a perpendicular comb.
     const sideDot = direction.x * frame.normal.x + direction.y * frame.normal.y;
-    if (sideDot < 0.16) {
+    if (sideDot < 0.1) {
       direction = normalize({
-        x: direction.x * 0.72 + frame.normal.x * 0.28,
-        y: direction.y * 0.72 + frame.normal.y * 0.28,
+        x: direction.x * 0.76 + frame.normal.x * 0.24,
+        y: direction.y * 0.76 + frame.normal.y * 0.24,
       });
     }
 
     const length =
       family.baseLength *
       orderLengthScale(frame.order) *
-      keyedRange(state.soul, `${key}:length`, 0.85, 1.15);
+      keyedRange(state.soul, `${key}:length`, 0.84, 1.16);
     const width =
       length *
       family.widthRatio *
-      keyedRange(state.soul, `${key}:width`, 0.91, 1.09);
+      keyedRange(state.soul, `${key}:width`, 0.9, 1.1);
     const petioleLength =
       family.petioleScale *
       orderPetioleScale(frame.order) *
-      keyedRange(state.soul, `${key}:petiole`, 0.86, 1.14);
-    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.095, 0.095);
+      keyedRange(state.soul, `${key}:petiole`, 0.85, 1.15);
+    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.1, 0.1);
     const leftWidth = width * (1 + asymmetry);
     const rightWidth = width * (1 - asymmetry);
 
