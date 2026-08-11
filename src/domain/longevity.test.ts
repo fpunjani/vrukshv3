@@ -37,7 +37,7 @@ const LOD_BUDGETS = new Map<number, { medium: number; far: number }>([
 
 function historicalPrefix(state: TreeState, entries: number): TreeState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     soul: state.soul,
     growthIndex: entries,
     modules: state.modules.filter((module) => module.bornAtEvent <= entries),
@@ -46,12 +46,16 @@ function historicalPrefix(state: TreeState, entries: number): TreeState {
 }
 
 function validateLongHistory(state: TreeState, expectedEntries: number): void {
-  expect(state.schemaVersion).toBe(2);
+  expect(state.schemaVersion).toBe(3);
   expect(state.growthIndex).toBe(expectedEntries);
   expect(state.leaves).toHaveLength(expectedEntries);
   expect(new Set(state.leaves.map((leaf) => leaf.entryId)).size).toBe(expectedEntries);
 
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
+  expect(
+    state.modules.every((module) => module.restDepth === 0),
+    "Phase B must preserve the existing planar history exactly",
+  ).toBe(true);
   let invalidHosts = 0;
   for (const leaf of state.leaves) {
     const host = moduleById.get(leaf.attachment.moduleId);
