@@ -14,6 +14,7 @@ const TRUNK_AXIS = "axis-0";
 const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
+const HARD_MATURE_ASPECT = 1.02;
 
 interface Candidate {
   parent: GrowthModule;
@@ -71,8 +72,14 @@ function axesOfOrder(state: TreeState, order: number): Map<string, number> {
   return counts;
 }
 
-function establishedAxisCount(state: TreeState, order: number, minimumModules: number): number {
-  return [...axesOfOrder(state, order).values()].filter((count) => count >= minimumModules).length;
+function establishedAxisCount(
+  state: TreeState,
+  order: number,
+  minimumModules: number,
+): number {
+  return [...axesOfOrder(state, order).values()].filter(
+    (count) => count >= minimumModules,
+  ).length;
 }
 
 function lateralFromAxisCount(state: TreeState, axisId: string): number {
@@ -114,7 +121,10 @@ function preferredAxisModules(order: number, traits: TreeTraits): number {
   return 3;
 }
 
-function minimumAxisModulesBeforeLateral(order: number, traits: TreeTraits): number {
+function minimumAxisModulesBeforeLateral(
+  order: number,
+  traits: TreeTraits,
+): number {
   if (order === 0) {
     return Math.max(6, Math.floor(preferredAxisModules(0, traits) - 4));
   }
@@ -216,6 +226,26 @@ function predictedBounds(bounds: Bounds, end: Point): Bounds {
   };
 }
 
+function boundsAspect(bounds: Bounds): number {
+  const width = Math.max(1, bounds.maxX - bounds.minX);
+  const height = Math.max(1, bounds.maxY - bounds.minY);
+  return width / height;
+}
+
+function violatesBroadCrownEnvelope(
+  current: Bounds,
+  proposedEnd: Point,
+  moduleCount: number,
+): boolean {
+  if (moduleCount < 18) return false;
+  const currentAspect = boundsAspect(current);
+  const nextAspect = boundsAspect(predictedBounds(current, proposedEnd));
+  return (
+    nextAspect > HARD_MATURE_ASPECT &&
+    nextAspect > currentAspect + 1e-6
+  );
+}
+
 function crownEnvelopeScore(
   current: Bounds,
   proposedEnd: Point,
@@ -229,11 +259,15 @@ function crownEnvelopeScore(
   const height = Math.max(1, next.maxY - next.minY);
   const aspect = width / height;
   const aspectError = Math.abs(aspect - traits.crownAspect);
-  const softMaximumAspect = Math.min(0.98, traits.crownAspect * 1.14 + 0.08);
+  const softMaximumAspect = Math.min(
+    0.98,
+    traits.crownAspect * 1.14 + 0.08,
+  );
   const overspread = Math.max(0, aspect - softMaximumAspect);
 
   const centre = (next.minX + next.maxX) / 2;
-  const targetCentre = Math.tan((traits.lean * Math.PI) / 180) * height * 0.3;
+  const targetCentre =
+    Math.tan((traits.lean * Math.PI) / 180) * height * 0.3;
   const centreError = Math.abs(centre - targetCentre) / Math.max(30, height);
 
   return -aspectError * 0.65 - overspread * 2.6 - centreError * 0.55;
@@ -274,12 +308,19 @@ function crownGapScore(
 
   let gapBonus = 0.5;
   if (sameBand.length > 0) {
-    const nearestX = Math.min(...sameBand.map((tip) => Math.abs(tip.end.x - proposedEnd.x)));
-    gapBonus = Math.min(0.75, nearestX / Math.max(12, candidateLengthValue * 2.2));
+    const nearestX = Math.min(
+      ...sameBand.map((tip) => Math.abs(tip.end.x - proposedEnd.x)),
+    );
+    gapBonus = Math.min(
+      0.75,
+      nearestX / Math.max(12, candidateLengthValue * 2.2),
+    );
   }
 
   const targetCentre =
-    Math.tan((traits.lean * Math.PI) / 180) * Math.max(20, -proposedEnd.y) * 0.25;
+    Math.tan((traits.lean * Math.PI) / 180) *
+    Math.max(20, -proposedEnd.y) *
+    0.25;
   const proposedSide = proposedEnd.x >= targetCentre ? 1 : -1;
   let sameSide = 0;
   let oppositeSide = 0;
@@ -289,7 +330,12 @@ function crownGapScore(
     else oppositeSide += 1;
   }
 
-  const sideBalance = sameSide < oppositeSide ? 0.18 : sameSide > oppositeSide + 1 ? -0.12 : 0;
+  const sideBalance =
+    sameSide < oppositeSide
+      ? 0.18
+      : sameSide > oppositeSide + 1
+        ? -0.12
+        : 0;
   return gapBonus + sideBalance;
 }
 
@@ -311,17 +357,23 @@ function firstOrderSideScore(
   let left = 0;
   let right = 0;
   for (const modules of axes.values()) {
-    const tip = [...modules].sort((a, b) => b.bornAtEvent - a.bornAtEvent)[0];
+    const tip = [...modules].sort(
+      (a, b) => b.bornAtEvent - a.bornAtEvent,
+    )[0];
     const projection = projectedById.get(tip.id);
     if (!projection) continue;
     const centre =
-      Math.tan((traits.lean * Math.PI) / 180) * Math.max(20, -projection.end.y) * 0.25;
+      Math.tan((traits.lean * Math.PI) / 180) *
+      Math.max(20, -projection.end.y) *
+      0.25;
     if (projection.end.x < centre) left += 1;
     else right += 1;
   }
 
   const proposedCentre =
-    Math.tan((traits.lean * Math.PI) / 180) * Math.max(20, -proposedEnd.y) * 0.25;
+    Math.tan((traits.lean * Math.PI) / 180) *
+    Math.max(20, -proposedEnd.y) *
+    0.25;
   const proposedLeft = proposedEnd.x < proposedCentre;
   const same = proposedLeft ? left : right;
   const other = proposedLeft ? right : left;
@@ -342,7 +394,12 @@ function baseVigor(
 
   const budAge = Math.max(0, parentAge - MIN_LATERAL_AGE);
   const accumulatedReadiness = Math.min(1.6, budAge * 0.13);
-  return 1.0 + (1 - traits.apicalDominance) * 0.7 + accumulatedReadiness - order * 0.14;
+  return (
+    1.0 +
+    (1 - traits.apicalDominance) * 0.7 +
+    accumulatedReadiness -
+    order * 0.14
+  );
 }
 
 function structuralRecencyPenalty(
@@ -418,15 +475,28 @@ function scoreCandidate(
 
   const start = parent.end;
   const end = pointFrom(start, candidate.heading, candidate.length);
-  if (!Number.isFinite(end.x) || !Number.isFinite(end.y) || end.y > 0) return null;
+  if (!Number.isFinite(end.x) || !Number.isFinite(end.y) || end.y > 0) {
+    return null;
+  }
   if (candidate.length <= 0.5) return null;
+  if (violatesBroadCrownEnvelope(bounds, end, state.modules.length)) {
+    return null;
+  }
   if (crossesExisting(start, end, candidate.parent.id, segments)) return null;
 
-  const clearance = proposedClearance(start, end, candidate.parent.id, segments);
+  const clearance = proposedClearance(
+    start,
+    end,
+    candidate.parent.id,
+    segments,
+  );
   if (clearance < MIN_STRUCTURAL_CLEARANCE) return null;
 
   const parentAge = state.growthIndex - candidate.parent.bornAtEvent;
-  const spaceScore = Math.min(1.45, clearance / Math.max(4, candidate.length * 0.45));
+  const spaceScore = Math.min(
+    1.45,
+    clearance / Math.max(4, candidate.length * 0.45),
+  );
   const firstOrderSide =
     candidate.relation === "lateral" && candidate.order === 1
       ? firstOrderSideScore(state, end, projectedById, traits)
@@ -442,7 +512,14 @@ function scoreCandidate(
     baseVigor(candidate.relation, candidate.order, parentAge, traits) +
     spaceScore * 0.78 +
     crownEnvelopeScore(bounds, end, traits, state.modules.length) +
-    crownGapScore(state, end, candidate.length, projectedById, bounds, traits) +
+    crownGapScore(
+      state,
+      end,
+      candidate.length,
+      projectedById,
+      bounds,
+      traits,
+    ) +
     firstOrderSide +
     architectureScore(state, candidate, traits) -
     structuralRecencyPenalty(state, candidate) +
@@ -468,9 +545,11 @@ function continuationCandidates(
     const projection = projectedById.get(parent.id);
     if (!projection) continue;
 
-    const targetHeading = parent.order === 0 ? traits.lean : projection.heading * 0.985;
+    const targetHeading =
+      parent.order === 0 ? traits.lean : projection.heading * 0.985;
     const tropism =
-      (targetHeading - projection.heading) * (parent.order === 0 ? 0.16 : 0.035);
+      (targetHeading - projection.heading) *
+      (parent.order === 0 ? 0.16 : 0.035);
     const localNoise = keyedRange(
       state.soul,
       `structure:${eventIndex}:${parent.id}:continue:curve`,
@@ -478,7 +557,11 @@ function continuationCandidates(
       traits.curvature,
     );
     const baseHeading = projection.heading + tropism + localNoise * 0.3;
-    const offsets = [-traits.curvature * 0.9, 0, traits.curvature * 0.9];
+    const offsets = [
+      -traits.curvature * 0.9,
+      0,
+      traits.curvature * 0.9,
+    ];
     const length = candidateLength(
       state,
       eventIndex,
@@ -530,7 +613,9 @@ function lateralCandidates(
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
 
     const axisModules = axisModuleCount(state, parent.axisId);
-    if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) continue;
+    if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
+      continue;
+    }
 
     const projection = projectedById.get(parent.id);
     if (!projection) continue;
@@ -543,7 +628,14 @@ function lateralCandidates(
       1.1,
     );
     const divergence = traits.branchAngle * angleScale;
-    const length = candidateLength(state, eventIndex, parent, "lateral", order, traits);
+    const length = candidateLength(
+      state,
+      eventIndex,
+      parent,
+      "lateral",
+      order,
+      traits,
+    );
 
     for (const side of [-1, 1] as const) {
       const rawHeading = projection.heading + side * divergence;
@@ -585,8 +677,18 @@ function initialModule(
     bornAtEvent: eventIndex,
     restTurn:
       traits.lean * 0.38 +
-      keyedRange(state.soul, `structure:${eventIndex}:origin:turn`, -1.2, 1.2),
-    restLength: keyedRange(state.soul, `structure:${eventIndex}:origin:length`, 21, 25),
+      keyedRange(
+        state.soul,
+        `structure:${eventIndex}:origin:turn`,
+        -1.2,
+        1.2,
+      ),
+    restLength: keyedRange(
+      state.soul,
+      `structure:${eventIndex}:origin:length`,
+      21,
+      25,
+    ),
   };
 }
 
@@ -596,11 +698,15 @@ export function growStructuralEvent(
 ): GrowthModule | null {
   const traits = deriveTreeTraits(state.soul);
 
-  if (state.modules.length === 0) return initialModule(state, eventIndex, traits);
+  if (state.modules.length === 0) {
+    return initialModule(state, eventIndex, traits);
+  }
   if (!shouldGrowStructure(eventIndex)) return null;
 
   const segments = projectTree(state);
-  const projectedById = new Map(segments.map((segment) => [segment.id, segment]));
+  const projectedById = new Map(
+    segments.map((segment) => [segment.id, segment]),
+  );
   const bounds = boundsFor(segments);
 
   let candidates = continuationCandidates(
@@ -614,12 +720,20 @@ export function growStructuralEvent(
 
   if (eventIndex > 5) {
     candidates = candidates.concat(
-      lateralCandidates(state, eventIndex, segments, projectedById, bounds, traits),
+      lateralCandidates(
+        state,
+        eventIndex,
+        segments,
+        projectedById,
+        bounds,
+        traits,
+      ),
     );
   } else {
     candidates = candidates.filter(
       (candidate) =>
-        candidate.relation === "continuation" && candidate.parent.axisId === TRUNK_AXIS,
+        candidate.relation === "continuation" &&
+        candidate.parent.axisId === TRUNK_AXIS,
     );
   }
 
