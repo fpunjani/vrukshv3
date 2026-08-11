@@ -43,21 +43,11 @@ function validateHistory(state: TreeState): string[] {
   const leafIds = new Set<string>();
   const relationByParent = new Map<string, Set<string>>();
 
-  if (state.schemaVersion !== 1) {
+  if (state.schemaVersion !== 2) {
     errors.push(`unsupported schema version ${String(state.schemaVersion)}`);
   }
   if (state.leaves.length !== state.growthIndex) {
     errors.push("growthIndex must equal the number of accepted leaf identities");
-  }
-
-  for (const leaf of state.leaves) {
-    if (leafIds.has(leaf.entryId)) {
-      errors.push(`duplicate leaf identity ${leaf.entryId}`);
-    }
-    leafIds.add(leaf.entryId);
-    if (!Number.isInteger(leaf.bornAtEvent) || leaf.bornAtEvent < 1) {
-      errors.push(`invalid leaf birth event for ${leaf.entryId}`);
-    }
   }
 
   for (const module of state.modules) {
@@ -115,6 +105,29 @@ function validateHistory(state: TreeState): string[] {
       relationByParent.set(module.parentId, relations);
     }
     byId.set(module.id, module);
+  }
+
+  for (const leaf of state.leaves) {
+    if (leafIds.has(leaf.entryId)) {
+      errors.push(`duplicate leaf identity ${leaf.entryId}`);
+    }
+    leafIds.add(leaf.entryId);
+    if (!Number.isInteger(leaf.bornAtEvent) || leaf.bornAtEvent < 1) {
+      errors.push(`invalid leaf birth event for ${leaf.entryId}`);
+    }
+
+    const host = byId.get(leaf.attachment.moduleId);
+    if (!host) {
+      errors.push(`leaf ${leaf.entryId} references missing host ${leaf.attachment.moduleId}`);
+    } else if (host.bornAtEvent > leaf.bornAtEvent) {
+      errors.push(`leaf ${leaf.entryId} attaches to future wood ${host.id}`);
+    }
+    if (!Number.isFinite(leaf.attachment.position) || leaf.attachment.position < 0 || leaf.attachment.position > 1) {
+      errors.push(`invalid attachment position for ${leaf.entryId}`);
+    }
+    if (leaf.attachment.side !== -1 && leaf.attachment.side !== 1) {
+      errors.push(`invalid attachment side for ${leaf.entryId}`);
+    }
   }
 
   const rootCount = state.modules.filter((module) => module.parentId === null).length;
