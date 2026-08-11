@@ -183,12 +183,17 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     .map((module) => projectedById.get(module.id))
     .filter((segment): segment is ProjectedSegment => Boolean(segment));
 
-  const matureContinuationTipIds = deriveScaffoldBalancedMeristemFrontier(
-    state.modules,
-    MATURE_STRUCTURE_HORIZON,
-    MATURE_TIP_STRUCTURAL_WINDOW,
-    MATURE_SCAFFOLD_RESERVE_PER_LINEAGE,
-  ).selectedTipIds;
+  // Mature-frontier machinery must have zero cost during the accepted <=1k
+  // phase. It is not consulted until mature continuation eligibility begins.
+  const matureContinuationTipIds: ReadonlySet<string> =
+    state.growthIndex >= MATURE_STRUCTURE_HORIZON
+      ? deriveScaffoldBalancedMeristemFrontier(
+          state.modules,
+          MATURE_STRUCTURE_HORIZON,
+          MATURE_TIP_STRUCTURAL_WINDOW,
+          MATURE_SCAFFOLD_RESERVE_PER_LINEAGE,
+        ).selectedTipIds
+      : new Set<string>();
 
   return {
     segments,
