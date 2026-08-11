@@ -2,8 +2,47 @@ import { chooseLeafAttachment } from "./foliage";
 import { growStructuralEvent } from "./structure";
 import type { Entry, EntryStatus, LeafIdentity, TreeState } from "./types";
 
+const VISUAL_STRUCTURE_HORIZON = 1000;
+const MATURE_STRUCTURAL_INTERVAL = 12;
+const BASE_MATURE_OPPORTUNITY = Math.floor(
+  VISUAL_STRUCTURE_HORIZON / MATURE_STRUCTURAL_INTERVAL,
+);
+const MATURE_GROWTH_SCALE = 2 * Math.sqrt(BASE_MATURE_OPPORTUNITY);
+
 export function createTree(soul: string): TreeState {
   return { schemaVersion: 2, soul, growthIndex: 0, modules: [], leaves: [] };
+}
+
+function matureOpportunityCount(opportunity: number): number {
+  if (opportunity <= BASE_MATURE_OPPORTUNITY) return 0;
+  return Math.floor(
+    MATURE_GROWTH_SCALE *
+      (Math.sqrt(opportunity) - Math.sqrt(BASE_MATURE_OPPORTUNITY)),
+  );
+}
+
+export function shouldAttemptStructuralGrowth(eventIndex: number): boolean {
+  // Preserve the accepted visual-development tree exactly through 1000 entries.
+  // Beyond that point the existing structural engine only grows on every 12th
+  // event. Select a square-root subset of those mature opportunities so wood
+  // keeps accumulating for life without becoming linear in entry count.
+  if (eventIndex <= VISUAL_STRUCTURE_HORIZON) return true;
+  if (eventIndex % MATURE_STRUCTURAL_INTERVAL !== 0) return false;
+
+  const opportunity = Math.floor(eventIndex / MATURE_STRUCTURAL_INTERVAL);
+  return (
+    matureOpportunityCount(opportunity) >
+    matureOpportunityCount(opportunity - 1)
+  );
+}
+
+function structuralModule(
+  state: TreeState,
+  eventIndex: number,
+): ReturnType<typeof growStructuralEvent> {
+  return shouldAttemptStructuralGrowth(eventIndex)
+    ? growStructuralEvent(state, eventIndex)
+    : null;
 }
 
 function nextLeaf(
@@ -40,7 +79,7 @@ export function applyEntry(previous: TreeState, entry: Entry): TreeState {
   }
 
   const eventIndex = previous.growthIndex + 1;
-  const module = growStructuralEvent(previous, eventIndex);
+  const module = structuralModule(previous, eventIndex);
   const modules = module ? [...previous.modules, module] : previous.modules;
   const leaf = nextLeaf(previous, entry, eventIndex, modules);
 
@@ -88,7 +127,7 @@ export function replayEntries(
 
   for (const entry of canonicalEntries(entries)) {
     const eventIndex = state.growthIndex + 1;
-    const module = growStructuralEvent(state, eventIndex);
+    const module = structuralModule(state, eventIndex);
     if (module) state.modules.push(module);
     const leaf = nextLeaf(state, entry, eventIndex, state.modules);
     state.growthIndex = eventIndex;
