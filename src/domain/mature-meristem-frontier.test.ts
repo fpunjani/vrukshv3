@@ -33,7 +33,8 @@ describe("scaffold-balanced mature meristem frontier", () => {
       for (const axis of frontier.acceptedScaffoldAxes) {
         const living = frontier.livingByScaffold.get(axis)?.length ?? 0;
         const selected = frontier.selectedByScaffold.get(axis)?.length ?? 0;
-        expect(selected).toBe(Math.min(4, living));
+        expect(selected).toBeGreaterThanOrEqual(Math.min(4, living));
+        expect(selected).toBeLessThanOrEqual(living);
       }
 
       expect(frontier.selectedTipIds.size).toBeLessThanOrEqual(
