@@ -18,6 +18,7 @@ export interface ProjectedLeafForm {
   bornAtEvent: number;
   order: number;
   side: -1 | 1;
+  position: number;
   stemOrigin: Point;
   base: Point;
   tip: Point;
@@ -33,12 +34,14 @@ export interface ProjectedLeafForm {
 
 export function deriveLeafFamilyTraits(soul: string): LeafFamilyTraits {
   return {
-    baseLength: keyedRange(soul, "leaf-family:length", 4.5, 5.8),
-    widthRatio: keyedRange(soul, "leaf-family:width-ratio", 0.32, 0.44),
-    petioleScale: keyedRange(soul, "leaf-family:petiole", 1.15, 1.75),
-    forwardBias: keyedRange(soul, "leaf-family:forward-bias", 0.18, 0.31),
-    lightBias: keyedRange(soul, "leaf-family:light-bias", 0.08, 0.2),
-    tipTension: keyedRange(soul, "leaf-family:tip-tension", 0.44, 0.64),
+    baseLength: keyedRange(soul, "leaf-family:length", 5.4, 6.8),
+    widthRatio: keyedRange(soul, "leaf-family:width-ratio", 0.3, 0.4),
+    petioleScale: keyedRange(soul, "leaf-family:petiole", 1.05, 1.6),
+    // A real foliage-bearing twig carries leaves partly along its growth
+    // direction. Normal-dominant bearing produces a synthetic fishbone.
+    forwardBias: keyedRange(soul, "leaf-family:forward-bias", 0.52, 0.66),
+    lightBias: keyedRange(soul, "leaf-family:light-bias", 0.1, 0.22),
+    tipTension: keyedRange(soul, "leaf-family:tip-tension", 0.52, 0.7),
   };
 }
 
@@ -70,16 +73,17 @@ function combine(
   forwardBias: number,
   lightBias: number,
 ): Point {
-  const outwardWeight = Math.max(0.55, 1 - forwardBias);
+  const tangentWeight = Math.max(0.48, Math.min(0.7, forwardBias));
+  const normalWeight = 1 - tangentWeight;
   return normalize({
-    x: normal.x * outwardWeight + tangent.x * forwardBias,
-    y: normal.y * outwardWeight + tangent.y * forwardBias - lightBias,
+    x: normal.x * normalWeight + tangent.x * tangentWeight,
+    y: normal.y * normalWeight + tangent.y * tangentWeight - lightBias,
   });
 }
 
 function orderLengthScale(order: number): number {
-  if (order <= 0) return 0.68;
-  if (order === 1) return 0.84;
+  if (order <= 0) return 0.7;
+  if (order === 1) return 0.86;
   if (order === 2) return 1;
   if (order === 3) return 1.05;
   return 0.98;
@@ -99,17 +103,17 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
   return projectFoliageFrames(state).map((frame) => {
     const key = `leaf-form:${frame.entryId}`;
     const forwardBias = Math.max(
-      0.1,
+      0.45,
       Math.min(
-        0.38,
-        family.forwardBias + keyedRange(state.soul, `${key}:forward`, -0.045, 0.045),
+        0.72,
+        family.forwardBias + keyedRange(state.soul, `${key}:forward`, -0.055, 0.055),
       ),
     );
     const lightBias = Math.max(
-      0.02,
+      0.03,
       Math.min(
-        0.26,
-        family.lightBias + keyedRange(state.soul, `${key}:light`, -0.035, 0.035),
+        0.29,
+        family.lightBias + keyedRange(state.soul, `${key}:light`, -0.04, 0.04),
       ),
     );
     const baseDirection = combine(
@@ -118,33 +122,33 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
       forwardBias,
       lightBias,
     );
-    const angleJitter = keyedRange(state.soul, `${key}:angle`, -10.5, 10.5);
+    const angleJitter = keyedRange(state.soul, `${key}:angle`, -16, 16);
     let direction = normalize(rotate(baseDirection, angleJitter));
 
-    // Bounded jitter may soften repetition, but a leaf must remain on its
-    // historical side of the host. Pull it back toward the side-normal if an
-    // extreme local tangent would otherwise make the direction ambiguous.
+    // The petiole still originates on the stored side, but its blade is free to
+    // sweep forward toward light. Only prevent a true side inversion rather
+    // than forcing every leaf back toward a perpendicular comb.
     const sideDot = direction.x * frame.normal.x + direction.y * frame.normal.y;
-    if (sideDot < 0.42) {
+    if (sideDot < 0.16) {
       direction = normalize({
-        x: direction.x * 0.55 + frame.normal.x * 0.45,
-        y: direction.y * 0.55 + frame.normal.y * 0.45,
+        x: direction.x * 0.72 + frame.normal.x * 0.28,
+        y: direction.y * 0.72 + frame.normal.y * 0.28,
       });
     }
 
     const length =
       family.baseLength *
       orderLengthScale(frame.order) *
-      keyedRange(state.soul, `${key}:length`, 0.86, 1.14);
+      keyedRange(state.soul, `${key}:length`, 0.85, 1.15);
     const width =
       length *
       family.widthRatio *
-      keyedRange(state.soul, `${key}:width`, 0.92, 1.08);
+      keyedRange(state.soul, `${key}:width`, 0.91, 1.09);
     const petioleLength =
       family.petioleScale *
       orderPetioleScale(frame.order) *
-      keyedRange(state.soul, `${key}:petiole`, 0.88, 1.12);
-    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.085, 0.085);
+      keyedRange(state.soul, `${key}:petiole`, 0.86, 1.14);
+    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.095, 0.095);
     const leftWidth = width * (1 + asymmetry);
     const rightWidth = width * (1 - asymmetry);
 
@@ -152,24 +156,24 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
     const base = offset(stemOrigin, direction, petioleLength);
     const tip = offset(base, direction, length);
     const perpendicular = { x: -direction.y, y: direction.x };
-    const shoulder = 0.2 + (1 - family.tipTension) * 0.055;
-    const upper = 0.6 + family.tipTension * 0.075;
+    const lower = 0.2 + (1 - family.tipTension) * 0.05;
+    const widest = 0.53 + family.tipTension * 0.06;
 
     const leftControl1 = {
-      x: base.x + direction.x * length * shoulder + perpendicular.x * leftWidth * 0.44,
-      y: base.y + direction.y * length * shoulder + perpendicular.y * leftWidth * 0.44,
+      x: base.x + direction.x * length * lower + perpendicular.x * leftWidth * 0.5,
+      y: base.y + direction.y * length * lower + perpendicular.y * leftWidth * 0.5,
     };
     const leftControl2 = {
-      x: base.x + direction.x * length * upper + perpendicular.x * leftWidth,
-      y: base.y + direction.y * length * upper + perpendicular.y * leftWidth,
+      x: base.x + direction.x * length * widest + perpendicular.x * leftWidth,
+      y: base.y + direction.y * length * widest + perpendicular.y * leftWidth,
     };
     const rightControl2 = {
-      x: base.x + direction.x * length * upper - perpendicular.x * rightWidth,
-      y: base.y + direction.y * length * upper - perpendicular.y * rightWidth,
+      x: base.x + direction.x * length * widest - perpendicular.x * rightWidth,
+      y: base.y + direction.y * length * widest - perpendicular.y * rightWidth,
     };
     const rightControl1 = {
-      x: base.x + direction.x * length * shoulder - perpendicular.x * rightWidth * 0.44,
-      y: base.y + direction.y * length * shoulder - perpendicular.y * rightWidth * 0.44,
+      x: base.x + direction.x * length * lower - perpendicular.x * rightWidth * 0.5,
+      y: base.y + direction.y * length * lower - perpendicular.y * rightWidth * 0.5,
     };
 
     return {
@@ -179,6 +183,7 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
       bornAtEvent: frame.bornAtEvent,
       order: frame.order,
       side: frame.side,
+      position: frame.position,
       stemOrigin,
       base,
       tip,
