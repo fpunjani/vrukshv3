@@ -2,6 +2,8 @@ import { projectTree } from "./geometry";
 import { diagnoseMorphology } from "./morphology";
 import type { GrowthModule, TreeState } from "./types";
 
+const TERMINAL_ORDER = 4;
+
 export interface MatureFrontierDiagnostics {
   horizon: number;
   totalModules: number;
@@ -30,6 +32,17 @@ export interface MatureFrontierDiagnostics {
   postHorizonVerticalFractionByOrder: number[];
   recentVerticalFraction: number;
   recentVerticalFractionByOrder: number[];
+  terminalAxisCount: number;
+  medianTerminalAxisModules: number;
+  p90TerminalAxisModules: number;
+  maxTerminalAxisModules: number;
+  terminalAxisOver3Fraction: number;
+  terminalAxisOver5Fraction: number;
+  terminalAxisOver8Fraction: number;
+  medianTerminalAxisLength: number;
+  p90TerminalAxisLength: number;
+  maxTerminalAxisLength: number;
+  postHorizonTerminalModuleFraction: number;
   legacyScaffoldModuleShare: number;
   crownWidth: number;
   crownHeight: number;
@@ -100,6 +113,9 @@ export function diagnoseMatureFrontier(
     state.modules.map((module, index) => [module.id, index]),
   );
   const projected = projectTree(state);
+  const projectedById = new Map(
+    projected.map((segment) => [segment.id, segment]),
+  );
   const headingById = new Map(
     projected.map((segment) => [segment.id, segment.heading]),
   );
@@ -165,6 +181,28 @@ export function diagnoseMatureFrontier(
     }
     latestOrdinalByAxis.set(module.axisId, index);
   }
+
+  const terminalAxisModuleCounts = new Map<string, number>();
+  const terminalAxisLengths = new Map<string, number>();
+  for (const module of state.modules) {
+    if (module.order !== TERMINAL_ORDER) continue;
+    terminalAxisModuleCounts.set(
+      module.axisId,
+      (terminalAxisModuleCounts.get(module.axisId) ?? 0) + 1,
+    );
+    const segment = projectedById.get(module.id);
+    if (segment) {
+      terminalAxisLengths.set(
+        module.axisId,
+        (terminalAxisLengths.get(module.axisId) ?? 0) + segment.length,
+      );
+    }
+  }
+  const terminalModuleCounts = [...terminalAxisModuleCounts.values()];
+  const terminalLengths = [...terminalAxisLengths.values()];
+  const postHorizonTerminalModules = postHorizon.filter(
+    (module) => module.order === TERMINAL_ORDER,
+  ).length;
 
   const order1Roots = state.modules.filter(
     (module) => module.order === 1 && module.relation === "lateral",
@@ -241,6 +279,20 @@ export function diagnoseMatureFrontier(
       headingById,
       maxOrder,
     ),
+    terminalAxisCount: terminalModuleCounts.length,
+    medianTerminalAxisModules: percentile(terminalModuleCounts, 0.5),
+    p90TerminalAxisModules: percentile(terminalModuleCounts, 0.9),
+    maxTerminalAxisModules: Math.max(0, ...terminalModuleCounts),
+    terminalAxisOver3Fraction: fractionOver(terminalModuleCounts, 3),
+    terminalAxisOver5Fraction: fractionOver(terminalModuleCounts, 5),
+    terminalAxisOver8Fraction: fractionOver(terminalModuleCounts, 8),
+    medianTerminalAxisLength: percentile(terminalLengths, 0.5),
+    p90TerminalAxisLength: percentile(terminalLengths, 0.9),
+    maxTerminalAxisLength: Math.max(0, ...terminalLengths),
+    postHorizonTerminalModuleFraction:
+      postHorizon.length > 0
+        ? postHorizonTerminalModules / postHorizon.length
+        : 0,
     legacyScaffoldModuleShare:
       nonTrunkModules.length > 0
         ? modulesInLegacyScaffolds / nonTrunkModules.length
