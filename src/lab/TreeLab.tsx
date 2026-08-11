@@ -7,6 +7,7 @@ import {
   type ProjectedCurve,
 } from "../domain/geometry";
 import { replayEntries } from "../domain/growth";
+import { projectLeafForms, type ProjectedLeafForm } from "../domain/leaf-form";
 import type { Entry, Point, TreeState } from "../domain/types";
 
 const MILESTONES = [0, 1, 3, 10, 30, 100, 300, 1000] as const;
@@ -46,6 +47,10 @@ function initialTimelineSoul(): string {
 
 function initialAttachmentMode(): boolean {
   return params().get("attachments") === "1";
+}
+
+function initialLeafMode(): boolean {
+  return params().get("leaves") === "1";
 }
 
 function makeEntries(count: number): Entry[] {
@@ -98,31 +103,65 @@ function polygonPath(points: readonly Point[]): string {
     .join(" ")} Z`;
 }
 
+function leafPath(leaf: ProjectedLeafForm): string {
+  return [
+    `M ${leaf.base.x.toFixed(3)} ${leaf.base.y.toFixed(3)}`,
+    `C ${leaf.leftControl1.x.toFixed(3)} ${leaf.leftControl1.y.toFixed(3)} ${leaf.leftControl2.x.toFixed(3)} ${leaf.leftControl2.y.toFixed(3)} ${leaf.tip.x.toFixed(3)} ${leaf.tip.y.toFixed(3)}`,
+    `C ${leaf.rightControl2.x.toFixed(3)} ${leaf.rightControl2.y.toFixed(3)} ${leaf.rightControl1.x.toFixed(3)} ${leaf.rightControl1.y.toFixed(3)} ${leaf.base.x.toFixed(3)} ${leaf.base.y.toFixed(3)}`,
+    "Z",
+  ].join(" ");
+}
+
 function Skeleton({
   state,
   viewBox,
   showAttachments,
+  showLeaves,
 }: {
   state: TreeState;
   viewBox: ViewBox;
   showAttachments: boolean;
+  showLeaves: boolean;
 }) {
   const curves = useMemo(() => projectTreeCurves(state), [state]);
   const marks = useMemo(
     () => (showAttachments ? projectFoliageMarks(state) : []),
     [showAttachments, state],
   );
+  const leaves = useMemo(
+    () => (showLeaves ? projectLeafForms(state) : []),
+    [showLeaves, state],
+  );
   const width = viewBox.maxX - viewBox.minX;
   const height = viewBox.maxY - viewBox.minY;
+  const modeLabel = showLeaves
+    ? " with Leaf Form V1"
+    : showAttachments
+      ? " with foliage attachment marks"
+      : "";
 
   return (
     <svg
       className="skeleton"
       viewBox={`${viewBox.minX} ${viewBox.minY} ${width} ${height}`}
       role="img"
-      aria-label={`Tree skeleton after ${state.growthIndex} growth events${showAttachments ? " with foliage attachment marks" : ""}`}
+      aria-label={`Tree skeleton after ${state.growthIndex} growth events${modeLabel}`}
     >
       <line x1={-500} y1={0} x2={500} y2={0} className="ground" />
+
+      {leaves.map((leaf) => (
+        <g key={leaf.entryId} className={`leaf-form leaf-order-${Math.min(4, leaf.order)}`}>
+          <line
+            x1={leaf.stemOrigin.x}
+            y1={leaf.stemOrigin.y}
+            x2={leaf.base.x}
+            y2={leaf.base.y}
+            className="leaf-petiole"
+          />
+          <path d={leafPath(leaf)} className="leaf-blade" />
+        </g>
+      ))}
+
       {curves.map((curve) => (
         <path
           key={curve.id}
@@ -130,6 +169,7 @@ function Skeleton({
           className={`wood wood-order-${Math.min(4, curve.order)}`}
         />
       ))}
+
       {marks.map((mark) => (
         <g key={mark.entryId} className="attachment-mark">
           <line
@@ -157,12 +197,14 @@ function TreeCard({
   state,
   viewBox,
   showAttachments,
+  showLeaves,
 }: {
   soul: string;
   count: number;
   state: TreeState;
   viewBox: ViewBox;
   showAttachments: boolean;
+  showLeaves: boolean;
 }) {
   return (
     <article className="tree-card">
@@ -174,6 +216,7 @@ function TreeCard({
         state={state}
         viewBox={viewBox}
         showAttachments={showAttachments}
+        showLeaves={showLeaves}
       />
       <div className="tree-stats">
         <span>{state.modules.length} structural modules</span>
@@ -187,6 +230,7 @@ export function TreeLab() {
   const [count, setCount] = useState(initialCount);
   const [timelineSoul, setTimelineSoul] = useState(initialTimelineSoul);
   const [showAttachments] = useState(initialAttachmentMode);
+  const [showLeaves] = useState(initialLeafMode);
 
   const identityStates = useMemo(
     () =>
@@ -213,25 +257,32 @@ export function TreeLab() {
     [timelineStates],
   );
 
+  const modeTitle = showLeaves
+    ? "Leaf Form V1"
+    : showAttachments
+      ? "Attachment debug mode"
+      : "Current rule";
+  const modeDescription = showLeaves
+    ? "Every visible blade is derived from one permanent identity and its historical wood attachment."
+    : showAttachments
+      ? "Each dot is one permanent entry identity attached to historical wood."
+      : "N + 1 may extend N. It may never rewrite N's history.";
+
   return (
     <main className="lab-shell">
       <header className="lab-header">
         <div>
-          <p className="eyebrow">Vruksh V3 / skeleton acceptance</p>
+          <p className="eyebrow">Vruksh V3 / layered acceptance</p>
           <h1>Tree Lab</h1>
           <p className="intro">
-            Structure only. Historical topology and foliage attachment are
-            persistent; curved wood and attachment marks are deterministic
-            projections. Shared framing prevents auto-fit from hiding weak trees.
+            Historical topology and foliage attachment are persistent. Curved
+            wood, debug marks, and Leaf Form V1 are deterministic projections.
+            Shared framing prevents auto-fit from hiding weak trees or canopies.
           </p>
         </div>
         <div className="status-card">
-          <span>{showAttachments ? "Attachment debug mode" : "Current rule"}</span>
-          <strong>
-            {showAttachments
-              ? "Each dot is one permanent entry identity attached to historical wood."
-              : "N + 1 may extend N. It may never rewrite N's history."}
-          </strong>
+          <span>{modeTitle}</span>
+          <strong>{modeDescription}</strong>
         </div>
       </header>
 
@@ -280,6 +331,7 @@ export function TreeLab() {
               state={state}
               viewBox={identityViewBox}
               showAttachments={showAttachments}
+              showLeaves={showLeaves}
             />
           ))}
         </div>
@@ -308,6 +360,7 @@ export function TreeLab() {
               state={state}
               viewBox={timelineViewBox}
               showAttachments={showAttachments}
+              showLeaves={showLeaves}
             />
           ))}
         </div>

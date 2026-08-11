@@ -1,6 +1,21 @@
 import { projectTreeCurves, type ProjectedCurve } from "./geometry";
 import type { EntryStatus, Point, TreeState } from "./types";
 
+export interface ProjectedFoliageFrame {
+  entryId: string;
+  moduleId: string;
+  status: EntryStatus;
+  bornAtEvent: number;
+  position: number;
+  side: -1 | 1;
+  order: number;
+  anchor: Point;
+  surface: Point;
+  tangent: Point;
+  normal: Point;
+  thickness: number;
+}
+
 export interface ProjectedFoliageMark {
   entryId: string;
   moduleId: string;
@@ -44,11 +59,11 @@ function cubicDerivative(curve: ProjectedCurve, t: number): Point {
   };
 }
 
-export function projectFoliageMarks(state: TreeState): ProjectedFoliageMark[] {
+export function projectFoliageFrames(state: TreeState): ProjectedFoliageFrame[] {
   const curveById = new Map(
     projectTreeCurves(state).map((curve) => [curve.id, curve]),
   );
-  const result: ProjectedFoliageMark[] = [];
+  const result: ProjectedFoliageFrame[] = [];
 
   for (const leaf of state.leaves) {
     const curve = curveById.get(leaf.attachment.moduleId);
@@ -56,14 +71,24 @@ export function projectFoliageMarks(state: TreeState): ProjectedFoliageMark[] {
 
     const t = Math.max(0, Math.min(1, leaf.attachment.position));
     const anchor = cubicPoint(curve, t);
-    const tangent = cubicDerivative(curve, t);
-    const magnitude = Math.max(1e-9, Math.hypot(tangent.x, tangent.y));
-    const nx = -tangent.y / magnitude;
-    const ny = tangent.x / magnitude;
+    const derivative = cubicDerivative(curve, t);
+    const magnitude = Math.max(1e-9, Math.hypot(derivative.x, derivative.y));
+    const tangent = {
+      x: derivative.x / magnitude,
+      y: derivative.y / magnitude,
+    };
+    const leftNormal = {
+      x: -tangent.y,
+      y: tangent.x,
+    };
+    const normal = {
+      x: leftNormal.x * leaf.attachment.side,
+      y: leftNormal.y * leaf.attachment.side,
+    };
     const thickness =
       curve.startThickness +
       (curve.endThickness - curve.startThickness) * t;
-    const offset = thickness / 2 + 1.35;
+    const surfaceOffset = thickness / 2 + 0.12;
 
     result.push({
       entryId: leaf.entryId,
@@ -72,13 +97,36 @@ export function projectFoliageMarks(state: TreeState): ProjectedFoliageMark[] {
       bornAtEvent: leaf.bornAtEvent,
       position: leaf.attachment.position,
       side: leaf.attachment.side,
+      order: curve.order,
       anchor,
-      point: {
-        x: anchor.x + nx * offset * leaf.attachment.side,
-        y: anchor.y + ny * offset * leaf.attachment.side,
+      surface: {
+        x: anchor.x + normal.x * surfaceOffset,
+        y: anchor.y + normal.y * surfaceOffset,
       },
+      tangent,
+      normal,
+      thickness,
     });
   }
 
   return result;
+}
+
+export function projectFoliageMarks(state: TreeState): ProjectedFoliageMark[] {
+  return projectFoliageFrames(state).map((frame) => {
+    const offset = frame.thickness / 2 + 1.35;
+    return {
+      entryId: frame.entryId,
+      moduleId: frame.moduleId,
+      status: frame.status,
+      bornAtEvent: frame.bornAtEvent,
+      position: frame.position,
+      side: frame.side,
+      anchor: frame.anchor,
+      point: {
+        x: frame.anchor.x + frame.normal.x * offset,
+        y: frame.anchor.y + frame.normal.y * offset,
+      },
+    };
+  });
 }
