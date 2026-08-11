@@ -47,6 +47,17 @@ describe("V3 mature frontier diagnostics", () => {
       first.continuationDormancyOver100Fraction,
       first.postHorizonVerticalFraction,
       first.recentVerticalFraction,
+      first.terminalAxisCount,
+      first.medianTerminalAxisModules,
+      first.p90TerminalAxisModules,
+      first.maxTerminalAxisModules,
+      first.terminalAxisOver3Fraction,
+      first.terminalAxisOver5Fraction,
+      first.terminalAxisOver8Fraction,
+      first.medianTerminalAxisLength,
+      first.p90TerminalAxisLength,
+      first.maxTerminalAxisLength,
+      first.postHorizonTerminalModuleFraction,
       first.legacyScaffoldModuleShare,
       first.crownWidth,
       first.crownHeight,
@@ -67,6 +78,10 @@ describe("V3 mature frontier diagnostics", () => {
       first.continuationDormancyOver100Fraction,
       first.postHorizonVerticalFraction,
       first.recentVerticalFraction,
+      first.terminalAxisOver3Fraction,
+      first.terminalAxisOver5Fraction,
+      first.terminalAxisOver8Fraction,
+      first.postHorizonTerminalModuleFraction,
       first.legacyScaffoldModuleShare,
       ...first.postHorizonVerticalFractionByOrder,
       ...first.recentVerticalFractionByOrder,
@@ -86,6 +101,7 @@ describe("V3 mature frontier diagnostics", () => {
     expect(diagnostics.legacyWoodLateralActivations).toBe(0);
     expect(diagnostics.lateralParentOver50Fraction).toBe(0);
     expect(diagnostics.continuationDormancyOver50Fraction).toBe(0);
+    expect(diagnostics.postHorizonTerminalModuleFraction).toBe(0);
     expect(diagnostics.postHorizonVerticalFractionByOrder.every((value) => value === 0)).toBe(true);
   });
 });
