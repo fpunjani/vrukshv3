@@ -37,18 +37,21 @@ function hostScore(
   entryId: string,
 ): number {
   const age = Math.max(0, eventIndex - module.bornAtEvent);
-  const terminalBonus = (context.children.get(module.id) ?? 0) === 0 ? 0.36 : 0;
-  const newbornBonus = module.bornAtEvent === eventIndex ? 0.58 : 0;
-  const recentBonus = 0.34 / (1 + age / 36);
 
-  // Entry-specific rendezvous jitter spreads identities across eligible wood
-  // without reading or repacking any prior foliage. That keeps attachment
-  // assignment dependent on current wood, not total historical leaf count.
+  // Young/terminal wood should be attractive, but not so attractive that all
+  // entries between structural events pile onto the same newest segment.
+  const terminalBonus = (context.children.get(module.id) ?? 0) === 0 ? 0.22 : 0;
+  const newbornBonus = module.bornAtEvent === eventIndex ? 0.25 : 0;
+  const recentBonus = 0.18 / (1 + age / 36);
+
+  // Entry-specific rendezvous competition is intentionally stronger than the
+  // local youth bonuses. That spreads independent identities across similarly
+  // suitable wood without scanning or repacking prior foliage.
   const rendezvous = keyedRange(
     state.soul,
     `foliage:${entryId}:${module.id}:host`,
-    -0.78,
-    0.78,
+    -1.05,
+    1.05,
   );
 
   return (
