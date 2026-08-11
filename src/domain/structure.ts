@@ -591,7 +591,7 @@ function continuationCandidates(
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
-    if (parent.order > MAX_ORDER) continue;
+    if (eventIndex <= 1000 && parent.order > MAX_ORDER) continue;
     if (context.continuationParents.has(parent.id)) continue;
 
     const projection = context.projectedById.get(parent.id);
@@ -658,7 +658,7 @@ function lateralCandidates(
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
-    if (parent.order >= MAX_ORDER) continue;
+    if (eventIndex <= 1000 && parent.order >= MAX_ORDER) continue;
     if (context.lateralParents.has(parent.id)) continue;
     if (!context.continuationParents.has(parent.id)) continue;
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
