@@ -181,7 +181,7 @@ function minimumAxisModulesBeforeLateral(
   if (order === 0) {
     return Math.max(6, Math.floor(preferredAxisModules(0, traits) - 4));
   }
-  if (order === 1) return 5;
+  if (order === 1) return 6;
   if (order === 2) return 3;
   return 3;
 }
