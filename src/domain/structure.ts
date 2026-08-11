@@ -1,10 +1,6 @@
 import { projectTree } from "./geometry";
 import { keyedRange } from "./random";
-import {
-  pointFrom,
-  properIntersection,
-  segmentToSegmentDistance,
-} from "./spatial";
+import { pointFrom, segmentToSegmentDistance } from "./spatial";
 import { deriveTreeTraits, type TreeTraits } from "./traits";
 import type {
   GrowthModule,
@@ -200,23 +196,11 @@ function proposedClearance(
       clearance,
       segmentToSegmentDistance(start, end, segment.start, segment.end),
     );
+    if (clearance === 0) return 0;
   }
   return Number.isFinite(clearance)
     ? clearance
     : Math.hypot(end.x - start.x, end.y - start.y);
-}
-
-function crossesExisting(
-  start: Point,
-  end: Point,
-  parentId: string,
-  segments: readonly ProjectedSegment[],
-): boolean {
-  for (const segment of segments) {
-    if (segment.id === parentId) continue;
-    if (properIntersection(start, end, segment.start, segment.end)) return true;
-  }
-  return false;
 }
 
 function predictedBounds(bounds: Bounds, end: Point): Bounds {
@@ -481,7 +465,6 @@ function scoreCandidate(
   if (violatesBroadCrownEnvelope(bounds, end, state.modules.length)) {
     return null;
   }
-  if (crossesExisting(start, end, candidate.parent.id, segments)) return null;
 
   const clearance = proposedClearance(
     start,
