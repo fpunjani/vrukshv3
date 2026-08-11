@@ -1,0 +1,76 @@
+name: JC Mature Spatial Visual Gate
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-jc
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    if: github.event.head_commit.message == 'Render JC mature spatial visual gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Render long-life comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p visual-jc/lod-long visual-jc/skeleton
+          npm exec vite -- preview --host 127.0.0.1 --port 4173 > /tmp/vruksh-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:4173/ > /dev/null
+
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          if [ -z "$chrome" ]; then
+            echo "No Chrome/Chromium executable found" >&2
+            exit 1
+          fi
+
+          for count in 3000 10000 30000; do
+            "$chrome" \
+              --headless --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=1600,2200 \
+              --screenshot="visual-jc/lod-long/count-${count}.png" \
+              "http://127.0.0.1:4173/?long=1&count=${count}&soul=ash-01"
+
+            "$chrome" \
+              --headless --disable-gpu --no-sandbox --hide-scrollbars \
+              --window-size=1600,5000 \
+              --screenshot="visual-jc/skeleton/count-${count}.png" \
+              "http://127.0.0.1:4173/?count=${count}&soul=ash-01"
+          done
+
+      - name: Upload JC visual gate
+        uses: actions/upload-artifact@v7
+        with:
+          name: jc-mature-spatial-visual
+          path: visual-jc
+          if-no-files-found: error
+          retention-days: 14
