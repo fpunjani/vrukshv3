@@ -1,6 +1,10 @@
 import { projectTree } from "./geometry";
 import { keyedRange } from "./random";
-import { midpoint, pointFrom, pointToSegmentDistance, properIntersection } from "./spatial";
+import {
+  pointFrom,
+  properIntersection,
+  segmentToSegmentDistance,
+} from "./spatial";
 import { deriveTreeTraits, type TreeTraits } from "./traits";
 import type {
   GrowthModule,
@@ -189,14 +193,12 @@ function proposedClearance(
   parentId: string,
   segments: readonly ProjectedSegment[],
 ): number {
-  const mid = midpoint(start, end);
   let clearance = Number.POSITIVE_INFINITY;
   for (const segment of segments) {
     if (segment.id === parentId) continue;
     clearance = Math.min(
       clearance,
-      pointToSegmentDistance(mid, segment.start, segment.end),
-      pointToSegmentDistance(end, segment.start, segment.end),
+      segmentToSegmentDistance(start, end, segment.start, segment.end),
     );
   }
   return Number.isFinite(clearance)
@@ -240,10 +242,7 @@ function violatesBroadCrownEnvelope(
   if (moduleCount < 18) return false;
   const currentAspect = boundsAspect(current);
   const nextAspect = boundsAspect(predictedBounds(current, proposedEnd));
-  return (
-    nextAspect > HARD_MATURE_ASPECT &&
-    nextAspect > currentAspect + 1e-6
-  );
+  return nextAspect > HARD_MATURE_ASPECT && nextAspect > currentAspect + 1e-6;
 }
 
 function crownEnvelopeScore(
