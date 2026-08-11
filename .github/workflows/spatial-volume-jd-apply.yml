@@ -1,0 +1,70 @@
+name: Apply Spatial Volume JD
+
+on:
+  push:
+    branches:
+      - v3-spatial-volume-jd
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage 3D developmental-space competition JD'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-spatial-volume-jd
+
+      - name: Replace mature XY gap score with 3D attraction competition
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+
+          def once(old: str, new: str, label: str):
+            global text
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'{label}: expected 1 marker, found {count}')
+            text = text.replace(old, new, 1)
+
+          marker = 'function firstOrderSideScore(\n'
+          helper = '''interface NormalizedVolumePoint {\n  x: number;\n  y: number;\n  z: number;\n}\n\nfunction normalizedMaturePoint(\n  context: GrowthContext,\n  eventIndex: number,\n  point: Point,\n  depth: number,\n): NormalizedVolumePoint {\n  const ageLog = Math.log2(\n    Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON),\n  );\n  const horizontalScale = 1 + ageLog * 0.18;\n  const verticalScale = 1 + ageLog * 0.14;\n  const reference = context.matureReferenceBounds;\n  const cushion = 6;\n  const minX = reference.minX * horizontalScale - cushion;\n  const maxX = reference.maxX * horizontalScale + cushion;\n  const topY = reference.minY * verticalScale - cushion;\n  const depthHalfSpan = Math.max(1e-6, matureDepthHalfSpan(context, eventIndex));\n\n  return {\n    x: clamp((point.x - minX) / Math.max(1e-6, maxX - minX) * 2 - 1, -1.25, 1.25),\n    y: clamp((-point.y) / Math.max(1e-6, -topY), 0, 1.25),\n    z: clamp(depth / depthHalfSpan, -1.25, 1.25),\n  };\n}\n\nfunction matureAttractor(\n  soul: string,\n  index: number,\n): NormalizedVolumePoint {\n  let x = keyedRange(soul, `mature-volume:${index}:x`, -0.82, 0.82);\n  let z = keyedRange(soul, `mature-volume:${index}:z`, -0.82, 0.82);\n  const radial = Math.hypot(x, z);\n  if (radial > 0.88) {\n    const scale = 0.88 / radial;\n    x *= scale;\n    z *= scale;\n  }\n\n  return {\n    x,\n    y: keyedRange(soul, `mature-volume:${index}:y`, 0.28, 0.92),\n    z,\n  };\n}\n\nfunction normalizedDistance(\n  a: NormalizedVolumePoint,\n  b: NormalizedVolumePoint,\n): number {\n  // Height remains visually important, while Z is real developmental space but\n  // slightly compressed so a branch cannot win solely by fleeing in depth.\n  return Math.hypot(\n    a.x - b.x,\n    (a.y - b.y) * 1.08,\n    (a.z - b.z) * 0.82,\n  );\n}\n\nfunction matureVolumeOpportunityScore(\n  state: TreeState,\n  context: GrowthContext,\n  eventIndex: number,\n  proposedEnd: Point,\n  proposedDepth: number,\n): number {\n  const candidate = normalizedMaturePoint(\n    context,\n    eventIndex,\n    proposedEnd,\n    proposedDepth,\n  );\n  const terminalTips = context.axisTips\n    .map((tip) => context.spatialById.get(tip.id))\n    .filter((tip): tip is ProjectedSpatialSegment => Boolean(tip))\n    .map((tip) =>\n      normalizedMaturePoint(context, eventIndex, tip.end, tip.endDepth),\n    );\n\n  const improvements: number[] = [];\n  const ATTRACTOR_COUNT = 32;\n  const KILL_RADIUS = 0.13;\n\n  for (let index = 0; index < ATTRACTOR_COUNT; index += 1) {\n    const attractor = matureAttractor(state.soul, index);\n    let currentDistance = Number.POSITIVE_INFINITY;\n    for (const tip of terminalTips) {\n      currentDistance = Math.min(\n        currentDistance,\n        normalizedDistance(tip, attractor),\n      );\n    }\n    if (!Number.isFinite(currentDistance)) currentDistance = 2;\n    if (currentDistance <= KILL_RADIUS) continue;\n\n    const candidateDistance = normalizedDistance(candidate, attractor);\n    const improvement = currentDistance - candidateDistance;\n    if (improvement > 0) improvements.push(improvement);\n  }\n\n  if (improvements.length === 0) return 0;\n  improvements.sort((a, b) => b - a);\n  const strongest = improvements.slice(0, 4);\n  const totalImprovement = strongest.reduce((sum, value) => sum + value, 0);\n  return Math.min(1.05, totalImprovement * 4.2);\n}\n\n'''
+          once(marker, helper + marker, 'insert 3D volume opportunity helpers')
+
+          old = '''  const firstOrderSide =\n    candidate.relation === "lateral" && candidate.order === 1\n      ? firstOrderSideScore(end, context, traits)\n      : 0;\n'''
+          new = '''  const firstOrderSide =\n    candidate.relation === "lateral" && candidate.order === 1\n      ? firstOrderSideScore(end, context, traits)\n      : 0;\n  const opportunityScore =\n    eventIndex <= MATURE_STRUCTURE_HORIZON\n      ? crownGapScore(state, context, end, candidate.length, traits)\n      : matureVolumeOpportunityScore(\n          state,\n          context,\n          eventIndex,\n          end,\n          endDepth,\n        );\n'''
+          once(old, new, 'compute developmental opportunity')
+
+          once(
+            '    crownEnvelopeScore(context.bounds, end, traits, state.modules.length) +\n    crownGapScore(state, context, end, candidate.length, traits) +\n    firstOrderSide +\n',
+            '    crownEnvelopeScore(context.bounds, end, traits, state.modules.length) +\n    opportunityScore +\n    firstOrderSide +\n',
+            'replace mature gap score call',
+          )
+
+          required = [
+            'function matureVolumeOpportunityScore(',
+            'const ATTRACTOR_COUNT = 32;',
+            'const KILL_RADIUS = 0.13;',
+            'eventIndex <= MATURE_STRUCTURE_HORIZON',
+            'opportunityScore +',
+          ]
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+            raise SystemExit(f'missing JD markers: {missing}')
+
+          path.write_text(text)
+
+      - name: Commit JD
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/domain/structure.ts
+          git commit -m "Prototype 3D developmental-space competition JD"
+          git push origin HEAD:v3-spatial-volume-jd
