@@ -120,8 +120,32 @@ describe("V3 Leaf Form V1", () => {
     expect(first.baseLength).toBeLessThanOrEqual(9.2);
     expect(first.widthRatio).toBeGreaterThanOrEqual(0.32);
     expect(first.widthRatio).toBeLessThanOrEqual(0.43);
-    expect(first.forwardBias).toBeGreaterThanOrEqual(0.52);
-    expect(first.forwardBias).toBeLessThanOrEqual(0.66);
+    expect(first.forwardBias).toBeGreaterThanOrEqual(0.18);
+    expect(first.forwardBias).toBeLessThanOrEqual(0.3);
+    expect(first.lightBias).toBeGreaterThanOrEqual(0.025);
+    expect(first.lightBias).toBeLessThanOrEqual(0.055);
+    expect(first.sagBias).toBeGreaterThanOrEqual(0.045);
+    expect(first.sagBias).toBeLessThanOrEqual(0.085);
+  });
+
+  it("does not globally force foliage upward across visual souls", () => {
+    const souls = ["ash-01", "ash-02", "ash-03", "ash-04", "ash-05", "ash-06", "ash-07", "ash-08"];
+    // The directional formula does not depend on total history size. Eight
+    // visual souls at 100 entries provide 800 independent projected bearings,
+    // while the separate 1000-entry contract and browser matrices still cover
+    // the mature visual horizon without competing with the structural stress gate.
+    const history = entries(100);
+
+    for (const soul of souls) {
+      const forms = projectLeafForms(replayEntries(soul, history));
+      const stronglyUp = forms.filter((form) => form.direction.y < -0.5).length / forms.length;
+      const lateralOrDown = forms.filter((form) => form.direction.y >= -0.15).length / forms.length;
+      const down = forms.filter((form) => form.direction.y > 0.05).length / forms.length;
+
+      expect(stronglyUp, `${soul} strongly-up fraction`).toBeLessThan(0.78);
+      expect(lateralOrDown, `${soul} lateral/down fraction`).toBeGreaterThan(0.16);
+      expect(down, `${soul} downward fraction`).toBeGreaterThan(0.035);
+    }
   });
 
   it("does not move or reshape a leaf when entry status changes", () => {
