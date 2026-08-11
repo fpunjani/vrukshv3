@@ -538,6 +538,118 @@ function crownGapScore(
   return gapBonus + sideBalance;
 }
 
+interface NormalizedVolumePoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function normalizedMaturePoint(
+  context: GrowthContext,
+  eventIndex: number,
+  point: Point,
+  depth: number,
+): NormalizedVolumePoint {
+  const ageLog = Math.log2(
+    Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON),
+  );
+  const horizontalScale = 1 + ageLog * 0.18;
+  const verticalScale = 1 + ageLog * 0.14;
+  const reference = context.matureReferenceBounds;
+  const cushion = 6;
+  const minX = reference.minX * horizontalScale - cushion;
+  const maxX = reference.maxX * horizontalScale + cushion;
+  const topY = reference.minY * verticalScale - cushion;
+  const depthHalfSpan = Math.max(1e-6, matureDepthHalfSpan(context, eventIndex));
+
+  return {
+    x: clamp((point.x - minX) / Math.max(1e-6, maxX - minX) * 2 - 1, -1.25, 1.25),
+    y: clamp((-point.y) / Math.max(1e-6, -topY), 0, 1.25),
+    z: clamp(depth / depthHalfSpan, -1.25, 1.25),
+  };
+}
+
+function matureAttractor(
+  soul: string,
+  index: number,
+): NormalizedVolumePoint {
+  let x = keyedRange(soul, `mature-volume:${index}:x`, -0.82, 0.82);
+  let z = keyedRange(soul, `mature-volume:${index}:z`, -0.82, 0.82);
+  const radial = Math.hypot(x, z);
+  if (radial > 0.88) {
+    const scale = 0.88 / radial;
+    x *= scale;
+    z *= scale;
+  }
+
+  return {
+    x,
+    y: keyedRange(soul, `mature-volume:${index}:y`, 0.28, 0.92),
+    z,
+  };
+}
+
+function normalizedDistance(
+  a: NormalizedVolumePoint,
+  b: NormalizedVolumePoint,
+): number {
+  // Height remains visually important, while Z is real developmental space but
+  // slightly compressed so a branch cannot win solely by fleeing in depth.
+  return Math.hypot(
+    a.x - b.x,
+    (a.y - b.y) * 1.08,
+    (a.z - b.z) * 0.82,
+  );
+}
+
+function matureVolumeOpportunityScore(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  proposedEnd: Point,
+  proposedDepth: number,
+): number {
+  const candidate = normalizedMaturePoint(
+    context,
+    eventIndex,
+    proposedEnd,
+    proposedDepth,
+  );
+  const terminalTips = context.axisTips
+    .map((tip) => context.spatialById.get(tip.id))
+    .filter((tip): tip is ProjectedSpatialSegment => Boolean(tip))
+    .map((tip) =>
+      normalizedMaturePoint(context, eventIndex, tip.end, tip.endDepth),
+    );
+
+  const improvements: number[] = [];
+  const ATTRACTOR_COUNT = 32;
+  const KILL_RADIUS = 0.13;
+
+  for (let index = 0; index < ATTRACTOR_COUNT; index += 1) {
+    const attractor = matureAttractor(state.soul, index);
+    let currentDistance = Number.POSITIVE_INFINITY;
+    for (const tip of terminalTips) {
+      currentDistance = Math.min(
+        currentDistance,
+        normalizedDistance(tip, attractor),
+      );
+    }
+    if (!Number.isFinite(currentDistance)) currentDistance = 2;
+    if (currentDistance <= KILL_RADIUS) continue;
+
+    const candidateDistance = normalizedDistance(candidate, attractor);
+    const improvement = currentDistance - candidateDistance;
+    if (improvement > 0) improvements.push(improvement);
+  }
+
+  if (improvements.length === 0) return 0;
+  improvements.sort((a, b) => b - a);
+  const strongest = improvements.slice(0, 4);
+  const totalImprovement = strongest.reduce((sum, value) => sum + value, 0);
+  return Math.min(1.05, totalImprovement * 4.2);
+}
+
 function firstOrderSideScore(
   proposedEnd: Point,
   context: GrowthContext,
@@ -767,6 +879,16 @@ function scoreCandidate(
     candidate.relation === "lateral" && candidate.order === 1
       ? firstOrderSideScore(end, context, traits)
       : 0;
+  const opportunityScore =
+    eventIndex <= MATURE_STRUCTURE_HORIZON
+      ? crownGapScore(state, context, end, candidate.length, traits)
+      : matureVolumeOpportunityScore(
+          state,
+          context,
+          eventIndex,
+          end,
+          endDepth,
+        );
   const jitter = keyedRange(
     state.soul,
     `structure:${eventIndex}:${candidate.parent.id}:${candidate.relation}:${candidate.heading}:jitter`,
@@ -778,7 +900,7 @@ function scoreCandidate(
     baseVigor(candidate.relation, candidate.order, parentAge, traits) +
     spaceScore * 0.78 +
     crownEnvelopeScore(context.bounds, end, traits, state.modules.length) +
-    crownGapScore(state, context, end, candidate.length, traits) +
+    opportunityScore +
     firstOrderSide +
     architectureScore(state, context, candidate, traits) -
     structuralRecencyPenalty(state, context, candidate) +
