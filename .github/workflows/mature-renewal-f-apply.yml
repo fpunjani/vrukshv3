@@ -1,0 +1,229 @@
+name: Apply Mature Renewal F
+
+on:
+  push:
+    branches:
+      - v3-mature-renewal-f
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage mature renewal F implementation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-mature-renewal-f
+
+      - name: Apply renewal semantics
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # ---------------- structure.ts ----------------
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+
+          replacements = [
+            (
+              'const HARD_MATURE_ASPECT = 1.02;\n',
+              'const HARD_MATURE_ASPECT = 1.02;\n'
+              'const MATURE_STRUCTURE_HORIZON = 1000;\n'
+              'const MATURE_TIP_STRUCTURAL_WINDOW = 64;\n'
+              'const MATURE_SIDE_STRUCTURAL_WINDOW = 48;\n',
+            ),
+            (
+              '  lateralFromAxisCounts: Map<string, number>;\n'
+              '  latestAxisModulePositions: Map<string, number>;\n',
+              '  lateralFromAxisCounts: Map<string, number>;\n'
+              '  modulePositions: Map<string, number>;\n'
+              '  latestAxisModulePositions: Map<string, number>;\n',
+            ),
+            (
+              '  const lateralFromAxisCounts = new Map<string, number>();\n'
+              '  const latestAxisModulePositions = new Map<string, number>();\n',
+              '  const lateralFromAxisCounts = new Map<string, number>();\n'
+              '  const modulePositions = new Map<string, number>();\n'
+              '  const latestAxisModulePositions = new Map<string, number>();\n',
+            ),
+            (
+              '    axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);\n'
+              '    latestAxisModulePositions.set(module.axisId, index);\n',
+              '    axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);\n'
+              '    modulePositions.set(module.id, index);\n'
+              '    latestAxisModulePositions.set(module.axisId, index);\n',
+            ),
+            (
+              '    if (module.parentId && module.relation === "lateral") {\n',
+              '    if (\n'
+              '      module.parentId &&\n'
+              '      (module.relation === "lateral" || module.relation === "renewal")\n'
+              '    ) {\n',
+            ),
+            (
+              '    lateralFromAxisCounts,\n'
+              '    latestAxisModulePositions,\n',
+              '    lateralFromAxisCounts,\n'
+              '    modulePositions,\n'
+              '    latestAxisModulePositions,\n',
+            ),
+          ]
+          for old, new in replacements:
+            if text.count(old) != 1:
+              raise SystemExit(f'structure marker count={text.count(old)}: {old[:90]!r}')
+            text = text.replace(old, new, 1)
+
+          old = '''  for (const parent of state.modules) {\n    if (parent.order > MAX_ORDER) continue;\n    if (context.continuationParents.has(parent.id)) continue;\n\n    const projection = context.projectedById.get(parent.id);\n'''
+          new = '''  for (const parent of state.modules) {\n    if (parent.order > MAX_ORDER) continue;\n    if (context.continuationParents.has(parent.id)) continue;\n\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);\n      if (latestAxisPosition === undefined) continue;\n      const structuralDormancy = state.modules.length - 1 - latestAxisPosition;\n      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;\n    }\n\n    const projection = context.projectedById.get(parent.id);\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'continuation eligibility marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''  for (const parent of state.modules) {\n    if (parent.order >= MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n'''
+          new = '''  for (const parent of state.modules) {\n    if (parent.order >= MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      // Mature ordinary growth does not create new primary scaffolds from old\n      // trunk buds. Side growth stays local to recent living-crown wood.\n      if (parent.order === 0) continue;\n      const parentPosition = context.modulePositions.get(parent.id);\n      if (parentPosition === undefined) continue;\n      const structuralAge = state.modules.length - 1 - parentPosition;\n      if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;\n    }\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'lateral eligibility marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          marker = '''function initialModule(\n  state: TreeState,\n'''
+          renewal_fn = '''function renewalCandidates(\n  state: TreeState,\n  context: GrowthContext,\n  eventIndex: number,\n  traits: TreeTraits,\n): Candidate[] {\n  if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];\n\n  const result: Candidate[] = [];\n\n  for (const parent of state.modules) {\n    if (parent.order !== MAX_ORDER) continue;\n    if (context.lateralParents.has(parent.id)) continue;\n    if (!context.continuationParents.has(parent.id)) continue;\n    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;\n\n    const parentPosition = context.modulePositions.get(parent.id);\n    if (parentPosition === undefined) continue;\n    const structuralAge = state.modules.length - 1 - parentPosition;\n    if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;\n\n    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;\n    if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {\n      continue;\n    }\n\n    const projection = context.projectedById.get(parent.id);\n    if (!projection) continue;\n\n    const divergence = lateralDivergence(\n      state,\n      eventIndex,\n      parent,\n      parent.order,\n      traits,\n    );\n    const length = candidateLength(\n      state,\n      context,\n      eventIndex,\n      parent,\n      "renewal",\n      parent.order,\n      traits,\n    );\n\n    for (const side of [-1, 1] as const) {\n      const rawHeading = projection.heading + side * divergence;\n      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));\n      const scored = scoreCandidate(\n        state,\n        context,\n        eventIndex,\n        {\n          parent,\n          relation: "renewal",\n          axisId: `axis-${eventIndex}`,\n          order: parent.order,\n          heading,\n          length,\n        },\n        traits,\n      );\n      if (scored) result.push(scored);\n    }\n  }\n\n  return result;\n}\n\n'''
+          if text.count(marker) != 1:
+            raise SystemExit(f'initialModule marker count={text.count(marker)}')
+          text = text.replace(marker, renewal_fn + marker, 1)
+
+          old = '''  if (eventIndex > 5) {\n    candidates = candidates.concat(\n      lateralCandidates(state, context, eventIndex, traits),\n    );\n  } else {\n'''
+          new = '''  if (eventIndex > 5) {\n    candidates = candidates.concat(\n      lateralCandidates(state, context, eventIndex, traits),\n    );\n    if (eventIndex > MATURE_STRUCTURE_HORIZON) {\n      candidates = candidates.concat(\n        renewalCandidates(state, context, eventIndex, traits),\n      );\n    }\n  } else {\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'candidate concat marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          required = [
+            'const MATURE_TIP_STRUCTURAL_WINDOW = 64;',
+            'const MATURE_SIDE_STRUCTURAL_WINDOW = 48;',
+            'modulePositions: Map<string, number>;',
+            'module.relation === "renewal"',
+            'function renewalCandidates(',
+            'relation: "renewal"',
+            'order: parent.order',
+          ]
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+            raise SystemExit(f'structure missing markers: {missing}')
+          path.write_text(text)
+
+          # ---------------- geometry.ts ----------------
+          path = Path('src/domain/geometry.ts')
+          text = path.read_text()
+
+          marker = '''function curveHandleLength(\n'''
+          helper = '''function isForkRelation(relation: GrowthModule["relation"]): boolean {\n  return relation === "lateral" || relation === "renewal";\n}\n\n'''
+          if text.count(marker) != 1:
+            raise SystemExit(f'curveHandleLength marker count={text.count(marker)}')
+          text = text.replace(marker, helper + marker, 1)
+
+          replacements = [
+            ('relation === "lateral"\n      ? 0.17', 'isForkRelation(relation)\n      ? 0.17'),
+            ('} else if (module.relation === "lateral" && parentSegment) {', '} else if (isForkRelation(module.relation) && parentSegment) {'),
+            ('} else if (module.relation === "lateral" && parentCurve) {', '} else if (isForkRelation(module.relation) && parentCurve) {'),
+          ]
+          for old, new in replacements:
+            if text.count(old) != 1:
+              raise SystemExit(f'geometry marker count={text.count(old)}: {old!r}')
+            text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          # ---------------- diagnostics.ts ----------------
+          path = Path('src/domain/diagnostics.ts')
+          text = path.read_text()
+          text = text.replace(
+            '  if (state.schemaVersion !== 2) {',
+            '  if (state.schemaVersion !== 3) {',
+            1,
+          )
+
+          old = '''  const relationByParent = new Map<string, Set<string>>();\n'''
+          new = '''  const relationByParent = new Map<string, Set<string>>();\n  const sideBranchParents = new Set<string>();\n'''
+          if text.count(old) != 1:
+            raise SystemExit('diagnostics relation map marker missing')
+          text = text.replace(old, new, 1)
+
+          old = '''      } else if (module.relation === "lateral") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`lateral ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order + 1) {\n          errors.push(`lateral ${module.id} must increment branch order`);\n        }\n      } else {\n'''
+          new = '''      } else if (module.relation === "lateral") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`lateral ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order + 1) {\n          errors.push(`lateral ${module.id} must increment branch order`);\n        }\n      } else if (module.relation === "renewal") {\n        if (module.axisId === parent.axisId) {\n          errors.push(`renewal ${module.id} must create a new axis`);\n        }\n        if (module.order !== parent.order) {\n          errors.push(`renewal ${module.id} must preserve parent order`);\n        }\n        if (module.order !== 4) {\n          errors.push(`renewal ${module.id} must remain in fine order 4`);\n        }\n        if (module.bornAtEvent <= 1000) {\n          errors.push(`renewal ${module.id} cannot predate mature horizon`);\n        }\n      } else {\n'''
+          if text.count(old) != 1:
+            raise SystemExit('diagnostics relation invariant marker missing')
+          text = text.replace(old, new, 1)
+
+          old = '''      const relations = relationByParent.get(module.parentId) ?? new Set<string>();\n'''
+          new = '''      if (module.relation === "lateral" || module.relation === "renewal") {\n        if (sideBranchParents.has(module.parentId)) {\n          errors.push(`parent ${module.parentId} has more than one side-branch child`);\n        }\n        sideBranchParents.add(module.parentId);\n      }\n\n      const relations = relationByParent.get(module.parentId) ?? new Set<string>();\n'''
+          if text.count(old) != 1:
+            raise SystemExit('diagnostics side-slot marker missing')
+          text = text.replace(old, new, 1)
+
+          old = '''      module?.relation === "lateral" &&\n      parent &&\n'''
+          new = '''      (module?.relation === "lateral" || module?.relation === "renewal") &&\n      parent &&\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'diagnostics fork diameter marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          # ---------------- mature-frontier.ts ----------------
+          path = Path('src/domain/mature-frontier.ts')
+          text = path.read_text()
+          text = text.replace(
+            '  postHorizonLaterals: number;\n',
+            '  postHorizonLaterals: number;\n  postHorizonRenewals: number;\n',
+            1,
+          )
+
+          old = '''  const postLaterals = postHorizon.filter(\n    (module) => module.relation === "lateral",\n  );\n'''
+          new = '''  const postLaterals = postHorizon.filter(\n    (module) => module.relation === "lateral",\n  );\n  const postRenewals = postHorizon.filter(\n    (module) => module.relation === "renewal",\n  );\n  const postSideBranches = [...postLaterals, ...postRenewals];\n'''
+          if text.count(old) != 1:
+            raise SystemExit('frontier relation counts marker missing')
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+            '    if (module.relation === "lateral") {\n',
+            '    if (module.relation === "lateral" || module.relation === "renewal") {\n',
+            1,
+          )
+
+          text = text.replace(
+            '    postHorizonLaterals: postLaterals.length,\n',
+            '    postHorizonLaterals: postLaterals.length,\n    postHorizonRenewals: postRenewals.length,\n',
+            1,
+          )
+
+          old = '''    legacyWoodLateralFraction:\n      postLaterals.length > 0\n        ? legacyWoodLateralActivations / postLaterals.length\n        : 0,\n'''
+          new = '''    legacyWoodLateralFraction:\n      postSideBranches.length > 0\n        ? legacyWoodLateralActivations / postSideBranches.length\n        : 0,\n'''
+          if text.count(old) != 1:
+            raise SystemExit('frontier side fraction marker missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          # ---------------- mature-frontier.test.ts ----------------
+          path = Path('src/domain/mature-frontier.test.ts')
+          text = path.read_text()
+          old = '''      first.postHorizonContinuations + first.postHorizonLaterals,\n    ).toBe(first.postHorizonModules);\n'''
+          new = '''      first.postHorizonContinuations +\n        first.postHorizonLaterals +\n        first.postHorizonRenewals,\n    ).toBe(first.postHorizonModules);\n'''
+          if text.count(old) != 1:
+            raise SystemExit('frontier test sum marker missing')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+            '    expect(diagnostics.postHorizonLaterals).toBe(0);\n',
+            '    expect(diagnostics.postHorizonLaterals).toBe(0);\n    expect(diagnostics.postHorizonRenewals).toBe(0);\n',
+            1,
+          )
+          path.write_text(text)
+
+      - name: Commit prototype F
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/domain/structure.ts src/domain/geometry.ts src/domain/diagnostics.ts src/domain/mature-frontier.ts src/domain/mature-frontier.test.ts
+          git commit -m "Prototype explicit mature renewal F"
+          git push origin HEAD:v3-mature-renewal-f
