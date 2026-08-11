@@ -22,11 +22,13 @@ function buildFoliageContext(
 }
 
 function orderPreference(order: number): number {
-  if (order === 0) return -0.9;
+  // Keep foliage off the trunk as a default, but do not make the relatively
+  // scarce highest-order twigs so attractive that a few modules hoard history.
+  if (order === 0) return -1.0;
   if (order === 1) return 0.0;
-  if (order === 2) return 0.48;
-  if (order === 3) return 0.72;
-  return 0.62;
+  if (order === 2) return 0.32;
+  if (order === 3) return 0.5;
+  return 0.44;
 }
 
 function hostScore(
