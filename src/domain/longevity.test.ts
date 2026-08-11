@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  CANOPY_LOD_POLICY,
+  entryBucketMap,
+  projectCanopyRepresentation,
+} from "./canopy-lod";
 import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
 import { diagnoseFoliage } from "./foliage-diagnostics";
 import { applyEntry, replayEntries } from "./growth";
@@ -63,6 +68,34 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(foliage.maxAxisLoadFraction).toBeLessThan(0.35);
   expect(foliage.trunkLeafFraction).toBeLessThan(0.2);
   expect(foliage.leftRightImbalance).toBeLessThan(0.15);
+
+  const medium = projectCanopyRepresentation(state, "module");
+  const far = projectCanopyRepresentation(state, "axis");
+  expect(entryBucketMap(medium).size).toBe(expectedEntries);
+  expect(entryBucketMap(far).size).toBe(expectedEntries);
+  expect(medium.buckets.length).toBeLessThanOrEqual(
+    state.modules.length * 2 * CANOPY_LOD_POLICY.modulePositionBins,
+  );
+  expect(far.buckets.length).toBeLessThanOrEqual(state.modules.length * 2);
+  expect(far.buckets.length).toBeLessThanOrEqual(medium.buckets.length);
+
+  // Temporary measurement used to set evidence-based budget ceilings. Remove
+  // once the first long-history LOD distribution is locked into regression.
+  console.log(
+    `LOD_COUNTS entries=${expectedEntries} modules=${state.modules.length} medium=${medium.buckets.length} far=${far.buckets.length}`,
+  );
+}
+
+function expectBucketPrefixStable(
+  earlier: TreeState,
+  later: TreeState,
+  level: "module" | "axis",
+): void {
+  const earlierMap = entryBucketMap(projectCanopyRepresentation(earlier, level));
+  const laterMap = entryBucketMap(projectCanopyRepresentation(later, level));
+  for (const [entryId, key] of earlierMap) {
+    expect(laterMap.get(entryId), `${level}:${entryId}`).toBe(key);
+  }
 }
 
 describe("V3 long-life organism", () => {
@@ -76,6 +109,11 @@ describe("V3 long-life organism", () => {
       validateLongHistory(at3000, 3000);
       validateLongHistory(at10000, 10000);
       validateLongHistory(at30000, 30000);
+
+      expectBucketPrefixStable(at3000, at10000, "module");
+      expectBucketPrefixStable(at3000, at10000, "axis");
+      expectBucketPrefixStable(at10000, at30000, "module");
+      expectBucketPrefixStable(at10000, at30000, "axis");
 
       // The rendered mature wood must also remain mechanically coherent at the
       // longevity horizon. Three samples per curve keep this as a broad safety
@@ -100,6 +138,9 @@ describe("V3 long-life organism", () => {
       expect(after.leaves.slice(0, at30000.leaves.length)).toEqual(at30000.leaves);
       expect(after.modules.slice(0, at30000.modules.length)).toEqual(at30000.modules);
       expect(after.leaves[30000].entryId).toBe("life-30001");
+
+      expectBucketPrefixStable(at30000, after, "module");
+      expectBucketPrefixStable(at30000, after, "axis");
     },
     60_000,
   );
