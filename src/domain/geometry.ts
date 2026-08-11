@@ -121,6 +121,10 @@ function endThicknessBySegment(
   return result;
 }
 
+function isRenewal(relation: GrowthModule["relation"]): boolean {
+  return relation === "renewal";
+}
+
 function curveHandleLength(
   segment: ProjectedSegment,
   relation: GrowthModule["relation"],
@@ -128,9 +132,11 @@ function curveHandleLength(
   atStart: boolean,
 ): number {
   const baseScale = atStart
-    ? relation === "lateral" || relation === "renewal"
+    ? relation === "lateral"
       ? 0.17
-      : 0.24
+      : isRenewal(relation)
+        ? 0.2
+        : 0.24
     : 0.24;
   const deviation = Math.abs(normalizeDelta(tangent - segment.heading));
   const corridorScale = Math.max(0.62, 1 - deviation / 70);
@@ -183,11 +189,10 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
     let startTangent = segment.heading;
     if (module.relation === "continuation" && parentEndTangent !== undefined) {
       startTangent = parentEndTangent;
-    } else if (
-      (module.relation === "lateral" || module.relation === "renewal") &&
-      parentSegment
-    ) {
+    } else if (module.relation === "lateral" && parentSegment) {
       startTangent = blendHeading(parentSegment.heading, segment.heading, 0.72);
+    } else if (module.relation === "renewal" && parentSegment) {
+      startTangent = blendHeading(parentSegment.heading, segment.heading, 0.5);
     }
 
     const endTangent = endTangentById.get(segment.id) ?? segment.heading;
@@ -211,13 +216,15 @@ export function projectTreeCurves(state: TreeState): ProjectedCurve[] {
       startThickness = segment.thickness * 1.14;
     } else if (module.relation === "continuation" && parentCurve) {
       startThickness = parentCurve.endThickness;
-    } else if (
-      (module.relation === "lateral" || module.relation === "renewal") &&
-      parentCurve
-    ) {
+    } else if (module.relation === "lateral" && parentCurve) {
       startThickness = Math.min(
         segment.thickness * 1.05,
         parentCurve.endThickness * 0.72,
+      );
+    } else if (module.relation === "renewal" && parentCurve) {
+      startThickness = Math.min(
+        segment.thickness * 1.05,
+        parentCurve.endThickness * 0.86,
       );
     }
 
