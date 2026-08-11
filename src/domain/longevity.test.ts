@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
 import { diagnoseFoliage } from "./foliage-diagnostics";
 import { applyEntry, replayEntries } from "./growth";
 import type { Entry, TreeState } from "./types";
@@ -40,6 +41,18 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   }
   expect(invalidHosts).toBe(0);
 
+  // Long-life states must preserve the same structural invariants we enforce
+  // inside the 0-1000 visual-development horizon. Longevity is not allowed to
+  // become a weaker mode just because structural opportunities are sparser.
+  const structure = diagnoseTree(state);
+  expect(structure.invariantErrors).toEqual([]);
+  expect(structure.crossings).toBe(0);
+  expect(structure.belowGroundCount).toBe(0);
+  expect(structure.maxChildren).toBeLessThanOrEqual(2);
+  expect(Number.isFinite(structure.width)).toBe(true);
+  expect(Number.isFinite(structure.height)).toBe(true);
+  expect(Number.isFinite(structure.aspectRatio)).toBe(true);
+
   // Wood must keep developing, but entries must never map 1:1 to branches.
   expect(state.modules.length).toBeGreaterThan(50);
   expect(state.modules.length).toBeLessThan(expectedEntries / 4);
@@ -63,6 +76,17 @@ describe("V3 long-life organism", () => {
       validateLongHistory(at3000, 3000);
       validateLongHistory(at10000, 10000);
       validateLongHistory(at30000, 30000);
+
+      // The rendered mature wood must also remain mechanically coherent at the
+      // longevity horizon. Three samples per curve keep this as a broad safety
+      // gate rather than turning the long-history test into a rendering benchmark.
+      const curved = diagnoseCurvedWood(at30000, 3);
+      expect(curved.curveCrossings).toBe(0);
+      expect(curved.crowdedPairs).toBe(0);
+      expect(curved.belowGroundSamples).toBe(0);
+      expect(curved.taperErrors).toBe(0);
+      expect(curved.continuationDiameterErrors).toBe(0);
+      expect(curved.lateralDiameterErrors).toBe(0);
 
       expect(at10000.modules.length).toBeGreaterThan(at3000.modules.length);
       expect(at30000.modules.length).toBeGreaterThan(at10000.modules.length);
