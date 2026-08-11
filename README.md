@@ -25,9 +25,9 @@ The current structural baseline has:
 - rendered-wood collision, taper, tangent, and diameter-continuity checks;
 - browser screenshot gates at shared scale.
 
-The earlier pole-with-twigs visual failure is no longer the current structural checkpoint. Foliage is now allowed to proceed **without being allowed to hide or rewrite the accepted wood**.
+The earlier pole-with-twigs visual failure is no longer the current structural checkpoint. Foliage is allowed to build on this wood **without being allowed to hide or rewrite it**.
 
-## Current checkpoint: foliage identity and historical attachment
+### Foliage identity + historical attachment: accepted checkpoint
 
 Every accepted entry owns one permanent foliage identity. In tree schema V2 that identity stores only historical attachment facts:
 
@@ -40,13 +40,23 @@ World coordinates, leaf silhouette, size, color, season, motion, and level-of-de
 
 Attachment assignment is deterministic and history-size-independent: new identities compete across eligible current wood using structural signals plus soul/entry/module-keyed rendezvous variation. Earlier foliage is never rescanned or repacked.
 
-Tree Lab exposes neutral attachment marks with `?attachments=1`. They are QA marks, not approved leaf art.
+The attachment checkpoint passed:
+
+- exact one-entry/one-identity/one-attachment invariants through 1,000 entries;
+- 16-soul distribution/concentration diagnostics at 100 / 300 / 1000;
+- the accepted 128-soul skeleton/crown regression unchanged through the visual horizon;
+- neutral browser attachment matrices at 30 / 100 / 300 / 1000 with no floating marks, trunk parking lot, single-limb collapse, or history jumps;
+- one-organism longevity reconstruction through 30,000 entries plus immutable append of entry 30,001.
+
+Tree Lab keeps `?attachments=1` as an intentionally plain QA view. Those marks are not approved leaf art.
 
 ## Scale contract
 
 **1,000 entries is a visual-development milestone, not a product maximum.**
 
 The domain has no maximum-entry constant. Non-visual longevity QA reconstructs one organism at **3,000, 10,000, and 30,000 entries**, then appends entry 30,001. Long-life QA checks exact identity count, historical attachment validity, append-only prefixes, sublinear wood growth, broad foliage distribution, and continued growth of the same organism.
+
+The accepted 0–1,000 structural cadence remains unchanged. Beyond 1,000, mature structural opportunities thin on a square-root schedule so the organism can keep adding wood for life without branch count becoming linear in entry count.
 
 30,000 is only the current stress target. Passing it does not create a maximum; later QA may move the stress horizon higher without changing the domain contract.
 
@@ -74,7 +84,7 @@ History is projected into cheap structural chords for growth/collision decisions
 - `docs/STRUCTURAL_ENGINE.md` — structural-engine design.
 - `docs/SKELETON_ACCEPTANCE.md` — engineering + human visual skeleton contract.
 - `docs/FOLIAGE_CONSTITUTION.md` — binding foliage identity/attachment semantics.
-- `docs/FOLIAGE_ATTACHMENT.md` — current attachment implementation and longevity policy.
+- `docs/FOLIAGE_ATTACHMENT.md` — accepted attachment implementation and longevity policy.
 - `AGENTS.md` — product and visual design intent.
 
 ## Run
@@ -100,7 +110,7 @@ npm test
 npm run build
 ```
 
-CI also renders browser screenshots at 30, 100, 300, and 1000 entries for both the plain skeleton and neutral attachment-debug view.
+CI additionally renders browser screenshots at 30, 100, 300, and 1000 entries for both the plain skeleton and neutral attachment-debug view.
 
 ## Working rules
 
@@ -112,13 +122,14 @@ CI also renders browser screenshots at 30, 100, 300, and 1000 entries for both t
 6. Identity is uncapped; renderer detail may scale down without deleting history.
 7. Do not introduce seasons, wind, final foliage art, auth, cloud sync, analytics, or product UI before the preceding checkpoint is proven.
 
-## Next checkpoint
+## Current checkpoint: Leaf Form V1
 
-After foliage attachment itself is accepted, begin **Leaf Form V1**:
+The next branch may finally render actual leaves, but only as a controlled geometry checkpoint:
 
 - one restrained leaf geometry family;
 - deterministic per-identity variation;
 - size/orientation derived from host branch and attachment;
 - believable petiole connection;
-- enough overlap/LOD discipline to avoid turning 1000 identities into a green blob;
-- no seasons, atmosphere, flowers, or decorative rescue layer yet.
+- explicit overlap/LOD discipline so 1,000 identities do not become a green blob;
+- the plain skeleton must remain legible enough to audit;
+- no seasons, atmosphere, flowers, wind, or decorative rescue layer yet.
