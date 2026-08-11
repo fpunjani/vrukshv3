@@ -1,4 +1,5 @@
 import { chooseLeafAttachment } from "./foliage";
+import { compareStableStrings } from "./stable-order";
 import { growStructuralEvent } from "./structure";
 import type { Entry, EntryStatus, LeafIdentity, TreeState } from "./types";
 
@@ -19,7 +20,7 @@ function compareChronology(
   bCreatedAt: number,
   bId: string,
 ): number {
-  return aCreatedAt - bCreatedAt || aId.localeCompare(bId);
+  return aCreatedAt - bCreatedAt || compareStableStrings(aId, bId);
 }
 
 function matureOpportunityCount(opportunity: number): number {
