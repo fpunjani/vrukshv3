@@ -33,6 +33,22 @@ interface Bounds {
   maxY: number;
 }
 
+interface GrowthContext {
+  segments: ProjectedSegment[];
+  projectedById: Map<string, ProjectedSegment>;
+  bounds: Bounds;
+  continuationParents: Set<string>;
+  lateralParents: Set<string>;
+  axisModuleCounts: Map<string, number>;
+  axisCountsByOrder: Map<number, number>;
+  establishedFiveByOrder: Map<number, number>;
+  lateralFromAxisCounts: Map<string, number>;
+  latestAxisModulePositions: Map<string, number>;
+  latestLateralFromAxisPositions: Map<string, number>;
+  axisTips: ProjectedSegment[];
+  firstOrderAxisTips: ProjectedSegment[];
+}
+
 function structuralInterval(eventIndex: number): number {
   return Math.min(12, 2 + Math.floor(Math.log2(eventIndex + 1)));
 }
@@ -41,72 +57,96 @@ export function shouldGrowStructure(eventIndex: number): boolean {
   return eventIndex <= 14 || eventIndex % structuralInterval(eventIndex) === 0;
 }
 
-function hasChild(
-  state: TreeState,
-  parentId: string,
-  relation: Exclude<GrowthRelation, "origin">,
-): boolean {
-  return state.modules.some(
-    (module) => module.parentId === parentId && module.relation === relation,
-  );
-}
-
-function moduleById(state: TreeState): Map<string, GrowthModule> {
-  return new Map(state.modules.map((module) => [module.id, module]));
-}
-
-function axisModuleCount(state: TreeState, axisId: string): number {
-  let count = 0;
-  for (const module of state.modules) {
-    if (module.axisId === axisId) count += 1;
+function boundsFor(segments: readonly ProjectedSegment[]): Bounds {
+  let minX = 0;
+  let maxX = 0;
+  let minY = 0;
+  let maxY = 0;
+  for (const segment of segments) {
+    minX = Math.min(minX, segment.start.x, segment.end.x);
+    maxX = Math.max(maxX, segment.start.x, segment.end.x);
+    minY = Math.min(minY, segment.start.y, segment.end.y);
+    maxY = Math.max(maxY, segment.start.y, segment.end.y);
   }
-  return count;
+  return { minX, maxX, minY, maxY };
 }
 
-function axesOfOrder(state: TreeState, order: number): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const module of state.modules) {
-    if (module.order !== order) continue;
-    counts.set(module.axisId, (counts.get(module.axisId) ?? 0) + 1);
-  }
-  return counts;
-}
+function buildGrowthContext(state: TreeState): GrowthContext {
+  const segments = projectTree(state);
+  const projectedById = new Map(segments.map((segment) => [segment.id, segment]));
+  const moduleById = new Map(state.modules.map((module) => [module.id, module]));
+  const continuationParents = new Set<string>();
+  const lateralParents = new Set<string>();
+  const axisModuleCounts = new Map<string, number>();
+  const axisOrderCounts = new Map<number, Map<string, number>>();
+  const lateralFromAxisCounts = new Map<string, number>();
+  const latestAxisModulePositions = new Map<string, number>();
+  const latestLateralFromAxisPositions = new Map<string, number>();
+  const latestFirstOrderModuleByAxis = new Map<string, GrowthModule>();
 
-function establishedAxisCount(
-  state: TreeState,
-  order: number,
-  minimumModules: number,
-): number {
-  return [...axesOfOrder(state, order).values()].filter(
-    (count) => count >= minimumModules,
-  ).length;
-}
-
-function lateralFromAxisCount(state: TreeState, axisId: string): number {
-  const byId = moduleById(state);
-  let count = 0;
-  for (const module of state.modules) {
-    if (module.relation !== "lateral" || !module.parentId) continue;
-    if (byId.get(module.parentId)?.axisId === axisId) count += 1;
-  }
-  return count;
-}
-
-function latestAxisModulePosition(state: TreeState, axisId: string): number {
-  for (let index = state.modules.length - 1; index >= 0; index -= 1) {
-    if (state.modules[index].axisId === axisId) return index;
-  }
-  return -1;
-}
-
-function latestLateralFromAxisPosition(state: TreeState, axisId: string): number {
-  const byId = moduleById(state);
-  for (let index = state.modules.length - 1; index >= 0; index -= 1) {
+  for (let index = 0; index < state.modules.length; index += 1) {
     const module = state.modules[index];
-    if (module.relation !== "lateral" || !module.parentId) continue;
-    if (byId.get(module.parentId)?.axisId === axisId) return index;
+    axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);
+    latestAxisModulePositions.set(module.axisId, index);
+
+    const orderCounts = axisOrderCounts.get(module.order) ?? new Map<string, number>();
+    orderCounts.set(module.axisId, (orderCounts.get(module.axisId) ?? 0) + 1);
+    axisOrderCounts.set(module.order, orderCounts);
+
+    if (module.order === 1) {
+      latestFirstOrderModuleByAxis.set(module.axisId, module);
+    }
+
+    if (module.parentId && module.relation === "continuation") {
+      continuationParents.add(module.parentId);
+    }
+    if (module.parentId && module.relation === "lateral") {
+      lateralParents.add(module.parentId);
+      const parentAxis = moduleById.get(module.parentId)?.axisId;
+      if (parentAxis) {
+        lateralFromAxisCounts.set(
+          parentAxis,
+          (lateralFromAxisCounts.get(parentAxis) ?? 0) + 1,
+        );
+        latestLateralFromAxisPositions.set(parentAxis, index);
+      }
+    }
   }
-  return -1;
+
+  const axisCountsByOrder = new Map<number, number>();
+  const establishedFiveByOrder = new Map<number, number>();
+  for (const [order, counts] of axisOrderCounts) {
+    axisCountsByOrder.set(order, counts.size);
+    establishedFiveByOrder.set(
+      order,
+      [...counts.values()].filter((count) => count >= 5).length,
+    );
+  }
+
+  const axisTips = state.modules
+    .filter((module) => !continuationParents.has(module.id))
+    .map((module) => projectedById.get(module.id))
+    .filter((segment): segment is ProjectedSegment => Boolean(segment));
+
+  const firstOrderAxisTips = [...latestFirstOrderModuleByAxis.values()]
+    .map((module) => projectedById.get(module.id))
+    .filter((segment): segment is ProjectedSegment => Boolean(segment));
+
+  return {
+    segments,
+    projectedById,
+    bounds: boundsFor(segments),
+    continuationParents,
+    lateralParents,
+    axisModuleCounts,
+    axisCountsByOrder,
+    establishedFiveByOrder,
+    lateralFromAxisCounts,
+    latestAxisModulePositions,
+    latestLateralFromAxisPositions,
+    axisTips,
+    firstOrderAxisTips,
+  };
 }
 
 function preferredAxisModules(order: number, traits: TreeTraits): number {
@@ -133,20 +173,6 @@ function minimumAxisModulesBeforeLateral(
   return 3;
 }
 
-function boundsFor(segments: readonly ProjectedSegment[]): Bounds {
-  let minX = 0;
-  let maxX = 0;
-  let minY = 0;
-  let maxY = 0;
-  for (const segment of segments) {
-    minX = Math.min(minX, segment.start.x, segment.end.x);
-    maxX = Math.max(maxX, segment.start.x, segment.end.x);
-    minY = Math.min(minY, segment.start.y, segment.end.y);
-    maxY = Math.max(maxY, segment.start.y, segment.end.y);
-  }
-  return { minX, maxX, minY, maxY };
-}
-
 function lengthRange(order: number): readonly [number, number] {
   if (order <= 0) return [16, 21];
   if (order === 1) return [13, 18];
@@ -157,6 +183,7 @@ function lengthRange(order: number): readonly [number, number] {
 
 function candidateLength(
   state: TreeState,
+  context: GrowthContext,
   eventIndex: number,
   parent: GrowthModule,
   relation: Exclude<GrowthRelation, "origin">,
@@ -167,7 +194,7 @@ function candidateLength(
   let scale = relation === "continuation" ? 1 : 0.94;
 
   if (relation === "continuation" && order === 0) {
-    const axisModules = axisModuleCount(state, parent.axisId);
+    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
     const preferred = preferredAxisModules(0, traits);
     const excess = Math.max(0, axisModules - preferred);
     scale *= Math.max(0.7, 1 - excess * 0.055);
@@ -256,35 +283,18 @@ function crownEnvelopeScore(
   return -aspectError * 0.65 - overspread * 2.6 - centreError * 0.55;
 }
 
-function axisTipSegments(
-  state: TreeState,
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
-): ProjectedSegment[] {
-  const continued = new Set(
-    state.modules
-      .filter((module) => module.relation === "continuation" && module.parentId)
-      .map((module) => module.parentId as string),
-  );
-  return state.modules
-    .filter((module) => !continued.has(module.id))
-    .map((module) => projectedById.get(module.id))
-    .filter((segment): segment is ProjectedSegment => Boolean(segment));
-}
-
 function crownGapScore(
   state: TreeState,
+  context: GrowthContext,
   proposedEnd: Point,
   candidateLengthValue: number,
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
-  bounds: Bounds,
   traits: TreeTraits,
 ): number {
   if (state.modules.length < 10) return 0;
 
-  const height = Math.max(60, -bounds.minY);
+  const height = Math.max(60, -context.bounds.minY);
   const proposedHeight = Math.max(0, -proposedEnd.y / height);
-  const tips = axisTipSegments(state, projectedById);
-  const sameBand = tips.filter((tip) => {
+  const sameBand = context.axisTips.filter((tip) => {
     const tipHeight = Math.max(0, -tip.end.y / height);
     return Math.abs(tipHeight - proposedHeight) <= 0.18;
   });
@@ -307,7 +317,7 @@ function crownGapScore(
   const proposedSide = proposedEnd.x >= targetCentre ? 1 : -1;
   let sameSide = 0;
   let oppositeSide = 0;
-  for (const tip of tips) {
+  for (const tip of context.axisTips) {
     const tipSide = tip.end.x >= targetCentre ? 1 : -1;
     if (tipSide === proposedSide) sameSide += 1;
     else oppositeSide += 1;
@@ -323,33 +333,20 @@ function crownGapScore(
 }
 
 function firstOrderSideScore(
-  state: TreeState,
   proposedEnd: Point,
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
+  context: GrowthContext,
   traits: TreeTraits,
 ): number {
-  const axes = new Map<string, GrowthModule[]>();
-  for (const module of state.modules) {
-    if (module.order !== 1) continue;
-    const list = axes.get(module.axisId) ?? [];
-    list.push(module);
-    axes.set(module.axisId, list);
-  }
-  if (axes.size === 0) return 0.2;
+  if (context.firstOrderAxisTips.length === 0) return 0.2;
 
   let left = 0;
   let right = 0;
-  for (const modules of axes.values()) {
-    const tip = [...modules].sort(
-      (a, b) => b.bornAtEvent - a.bornAtEvent,
-    )[0];
-    const projection = projectedById.get(tip.id);
-    if (!projection) continue;
+  for (const tip of context.firstOrderAxisTips) {
     const centre =
       Math.tan((traits.lean * Math.PI) / 180) *
-      Math.max(20, -projection.end.y) *
+      Math.max(20, -tip.end.y) *
       0.25;
-    if (projection.end.x < centre) left += 1;
+    if (tip.end.x < centre) left += 1;
     else right += 1;
   }
 
@@ -387,12 +384,13 @@ function baseVigor(
 
 function structuralRecencyPenalty(
   state: TreeState,
+  context: GrowthContext,
   candidate: Omit<Candidate, "score">,
 ): number {
   const position =
     candidate.relation === "continuation"
-      ? latestAxisModulePosition(state, candidate.parent.axisId)
-      : latestLateralFromAxisPosition(state, candidate.parent.axisId);
+      ? context.latestAxisModulePositions.get(candidate.parent.axisId) ?? -1
+      : context.latestLateralFromAxisPositions.get(candidate.parent.axisId) ?? -1;
   if (position < 0) return 0;
 
   const structuralGap = state.modules.length - 1 - position;
@@ -403,10 +401,11 @@ function structuralRecencyPenalty(
 
 function architectureScore(
   state: TreeState,
+  context: GrowthContext,
   candidate: Omit<Candidate, "score">,
   traits: TreeTraits,
 ): number {
-  const axisModules = axisModuleCount(state, candidate.parent.axisId);
+  const axisModules = context.axisModuleCounts.get(candidate.parent.axisId) ?? 0;
   const preferred = preferredAxisModules(candidate.order, traits);
 
   if (candidate.relation === "continuation") {
@@ -415,8 +414,8 @@ function architectureScore(
 
     if (candidate.order === 0) {
       const earlyLeaderBonus = Math.min(0.9, deficit * 0.14);
-      const order1Axes = axesOfOrder(state, 1).size;
-      const establishedScaffolds = establishedAxisCount(state, 1, 5);
+      const order1Axes = context.axisCountsByOrder.get(1) ?? 0;
+      const establishedScaffolds = context.establishedFiveByOrder.get(1) ?? 0;
       const crownFormationPressure = Math.min(
         1.45,
         Math.max(0, state.modules.length - 10) * 0.025 +
@@ -430,7 +429,7 @@ function architectureScore(
     return establishmentBonus - excess * 0.3;
   }
 
-  const laterals = lateralFromAxisCount(state, candidate.parent.axisId);
+  const laterals = context.lateralFromAxisCounts.get(candidate.parent.axisId) ?? 0;
   const branchDensity = laterals / Math.max(1, axisModules - 1);
   const parentEstablishmentTarget = minimumAxisModulesBeforeLateral(
     candidate.parent.order,
@@ -446,14 +445,12 @@ function architectureScore(
 
 function scoreCandidate(
   state: TreeState,
+  context: GrowthContext,
   eventIndex: number,
   candidate: Omit<Candidate, "score">,
-  segments: readonly ProjectedSegment[],
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
-  bounds: Bounds,
   traits: TreeTraits,
 ): Candidate | null {
-  const parent = projectedById.get(candidate.parent.id);
+  const parent = context.projectedById.get(candidate.parent.id);
   if (!parent) return null;
 
   const start = parent.end;
@@ -462,7 +459,13 @@ function scoreCandidate(
     return null;
   }
   if (candidate.length <= 0.5) return null;
-  if (violatesBroadCrownEnvelope(bounds, end, state.modules.length)) {
+  if (
+    violatesBroadCrownEnvelope(
+      context.bounds,
+      end,
+      state.modules.length,
+    )
+  ) {
     return null;
   }
 
@@ -470,7 +473,7 @@ function scoreCandidate(
     start,
     end,
     candidate.parent.id,
-    segments,
+    context.segments,
   );
   if (clearance < MIN_STRUCTURAL_CLEARANCE) return null;
 
@@ -481,7 +484,7 @@ function scoreCandidate(
   );
   const firstOrderSide =
     candidate.relation === "lateral" && candidate.order === 1
-      ? firstOrderSideScore(state, end, projectedById, traits)
+      ? firstOrderSideScore(end, context, traits)
       : 0;
   const jitter = keyedRange(
     state.soul,
@@ -493,18 +496,22 @@ function scoreCandidate(
   const score =
     baseVigor(candidate.relation, candidate.order, parentAge, traits) +
     spaceScore * 0.78 +
-    crownEnvelopeScore(bounds, end, traits, state.modules.length) +
+    crownEnvelopeScore(
+      context.bounds,
+      end,
+      traits,
+      state.modules.length,
+    ) +
     crownGapScore(
       state,
+      context,
       end,
       candidate.length,
-      projectedById,
-      bounds,
       traits,
     ) +
     firstOrderSide +
-    architectureScore(state, candidate, traits) -
-    structuralRecencyPenalty(state, candidate) +
+    architectureScore(state, context, candidate, traits) -
+    structuralRecencyPenalty(state, context, candidate) +
     jitter;
 
   return { ...candidate, score };
@@ -512,19 +519,17 @@ function scoreCandidate(
 
 function continuationCandidates(
   state: TreeState,
+  context: GrowthContext,
   eventIndex: number,
-  segments: readonly ProjectedSegment[],
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
-  bounds: Bounds,
   traits: TreeTraits,
 ): Candidate[] {
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
     if (parent.order > MAX_ORDER) continue;
-    if (hasChild(state, parent.id, "continuation")) continue;
+    if (context.continuationParents.has(parent.id)) continue;
 
-    const projection = projectedById.get(parent.id);
+    const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
 
     const targetHeading =
@@ -546,6 +551,7 @@ function continuationCandidates(
     ];
     const length = candidateLength(
       state,
+      context,
       eventIndex,
       parent,
       "continuation",
@@ -557,6 +563,7 @@ function continuationCandidates(
       const heading = Math.max(-82, Math.min(82, baseHeading + offset));
       const scored = scoreCandidate(
         state,
+        context,
         eventIndex,
         {
           parent,
@@ -566,9 +573,6 @@ function continuationCandidates(
           heading,
           length,
         },
-        segments,
-        projectedById,
-        bounds,
         traits,
       );
       if (scored) result.push(scored);
@@ -580,26 +584,24 @@ function continuationCandidates(
 
 function lateralCandidates(
   state: TreeState,
+  context: GrowthContext,
   eventIndex: number,
-  segments: readonly ProjectedSegment[],
-  projectedById: ReadonlyMap<string, ProjectedSegment>,
-  bounds: Bounds,
   traits: TreeTraits,
 ): Candidate[] {
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
     if (parent.order >= MAX_ORDER) continue;
-    if (hasChild(state, parent.id, "lateral")) continue;
-    if (!hasChild(state, parent.id, "continuation")) continue;
+    if (context.lateralParents.has(parent.id)) continue;
+    if (!context.continuationParents.has(parent.id)) continue;
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
 
-    const axisModules = axisModuleCount(state, parent.axisId);
+    const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
     if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
       continue;
     }
 
-    const projection = projectedById.get(parent.id);
+    const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
 
     const order = parent.order + 1;
@@ -612,6 +614,7 @@ function lateralCandidates(
     const divergence = traits.branchAngle * angleScale;
     const length = candidateLength(
       state,
+      context,
       eventIndex,
       parent,
       "lateral",
@@ -624,6 +627,7 @@ function lateralCandidates(
       const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));
       const scored = scoreCandidate(
         state,
+        context,
         eventIndex,
         {
           parent,
@@ -633,9 +637,6 @@ function lateralCandidates(
           heading,
           length,
         },
-        segments,
-        projectedById,
-        bounds,
         traits,
       );
       if (scored) result.push(scored);
@@ -685,31 +686,12 @@ export function growStructuralEvent(
   }
   if (!shouldGrowStructure(eventIndex)) return null;
 
-  const segments = projectTree(state);
-  const projectedById = new Map(
-    segments.map((segment) => [segment.id, segment]),
-  );
-  const bounds = boundsFor(segments);
-
-  let candidates = continuationCandidates(
-    state,
-    eventIndex,
-    segments,
-    projectedById,
-    bounds,
-    traits,
-  );
+  const context = buildGrowthContext(state);
+  let candidates = continuationCandidates(state, context, eventIndex, traits);
 
   if (eventIndex > 5) {
     candidates = candidates.concat(
-      lateralCandidates(
-        state,
-        eventIndex,
-        segments,
-        projectedById,
-        bounds,
-        traits,
-      ),
+      lateralCandidates(state, context, eventIndex, traits),
     );
   } else {
     candidates = candidates.filter(
@@ -730,7 +712,7 @@ export function growStructuralEvent(
   const winner = candidates[0];
   if (!winner) return null;
 
-  const parentProjection = projectedById.get(winner.parent.id);
+  const parentProjection = context.projectedById.get(winner.parent.id);
   if (!parentProjection) return null;
 
   return {
