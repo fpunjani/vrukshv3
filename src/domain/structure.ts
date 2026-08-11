@@ -13,6 +13,7 @@ import type {
 const TRUNK_AXIS = "axis-0";
 const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
+const MIN_STRUCTURAL_CLEARANCE = 2.0;
 
 interface Candidate {
   parent: GrowthModule;
@@ -226,13 +227,16 @@ function crownEnvelopeScore(
   const next = predictedBounds(current, proposedEnd);
   const width = Math.max(1, next.maxX - next.minX);
   const height = Math.max(1, next.maxY - next.minY);
-  const aspectError = Math.abs(width / height - traits.crownAspect);
+  const aspect = width / height;
+  const aspectError = Math.abs(aspect - traits.crownAspect);
+  const softMaximumAspect = Math.min(0.98, traits.crownAspect * 1.14 + 0.08);
+  const overspread = Math.max(0, aspect - softMaximumAspect);
 
   const centre = (next.minX + next.maxX) / 2;
   const targetCentre = Math.tan((traits.lean * Math.PI) / 180) * height * 0.3;
   const centreError = Math.abs(centre - targetCentre) / Math.max(30, height);
 
-  return -aspectError * 0.65 - centreError * 0.55;
+  return -aspectError * 0.65 - overspread * 2.6 - centreError * 0.55;
 }
 
 function axisTipSegments(
@@ -419,7 +423,7 @@ function scoreCandidate(
   if (crossesExisting(start, end, candidate.parent.id, segments)) return null;
 
   const clearance = proposedClearance(start, end, candidate.parent.id, segments);
-  if (clearance < 1.6) return null;
+  if (clearance < MIN_STRUCTURAL_CLEARANCE) return null;
 
   const parentAge = state.growthIndex - candidate.parent.bornAtEvent;
   const spaceScore = Math.min(1.45, clearance / Math.max(4, candidate.length * 0.45));
