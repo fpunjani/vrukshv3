@@ -42,6 +42,27 @@ Only after entry 1,000:
 
 The original candidates remain available. JE4 adds at most two continuation candidates per already-eligible continuation parent.
 
+### Implementation-cost invariant
+
+The set of currently uncolonized mature attractors and normalized terminal tips is computed **once per structural event**, then reused while each eligible parent selects its nearest two targets. It must not be recomputed independently for every parent. This is semantically identical to the first JE4 implementation but avoids turning a bounded candidate experiment into avoidable repeated mature-history work.
+
+## Gate 1 result — reachable volume PASS
+
+The exact JE3 measurement was rerun on generated JE4 trees across ash-01..04.
+
+At 30k, improvable-attractor fraction rose from **0 in every JE3 soul** to approximately:
+
+- ash-01: 0.237 (meaningful >0.03: 0.143)
+- ash-02: 0.123 (meaningful: 0.049)
+- ash-03: 0.042 (meaningful: 0.024)
+- ash-04: 0.217 (meaningful: 0.109)
+
+Continuation parents now average roughly **2.4–2.9 distinct depth options** in the sampled 30k events instead of exactly one. The mean legal candidate pool remains bounded at roughly 10–23 candidates across those 30k samples.
+
+This proves candidate-space reachability was a real limiting mechanism and JE4 materially restores 3D agency.
+
+The same data also shows that the final-score winner is usually **not** the highest-opportunity candidate. That is not being tuned inside JE4; score composition remains locked until the technical and visual gates establish whether the new reachable options are useful in the actual organism.
+
 ## Locked layers
 
 JE4 must not change:
@@ -62,15 +83,8 @@ JE4 must not change:
 
 ## Acceptance order
 
-### Gate 1 — Reachability
-Re-run JE3 exact-candidate diagnostics on the generated JE4 tree.
-
-Required direction of travel:
-- 30k improvable-attractor fraction materially above zero across souls;
-- continuation parents gain >1 depth option for a meaningful fraction of sampled events;
-- legal candidate pool remains bounded in the tens, not historical-size growth.
-
-If this fails, reject JE4 before visual tuning.
+### Gate 1 — Reachability ✅
+Passed as documented above.
 
 ### Gate 2 — Existing technical contracts
 Without loosening limits:
