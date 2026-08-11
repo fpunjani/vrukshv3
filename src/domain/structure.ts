@@ -15,6 +15,7 @@ const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
+const MATURE_STRUCTURE_HORIZON = 1000;
 
 interface Candidate {
   parent: GrowthModule;
@@ -43,6 +44,7 @@ interface GrowthContext {
   axisCountsByOrder: Map<number, number>;
   establishedFiveByOrder: Map<number, number>;
   lateralFromAxisCounts: Map<string, number>;
+  modulePositions: Map<string, number>;
   latestAxisModulePositions: Map<string, number>;
   latestLateralFromAxisPositions: Map<string, number>;
   axisTips: ProjectedSegment[];
@@ -83,6 +85,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   const axisModuleCounts = new Map<string, number>();
   const axisOrderCounts = new Map<number, Map<string, number>>();
   const lateralFromAxisCounts = new Map<string, number>();
+  const modulePositions = new Map<string, number>();
   const latestAxisModulePositions = new Map<string, number>();
   const latestLateralFromAxisPositions = new Map<string, number>();
   const latestFirstOrderModuleByAxis = new Map<string, GrowthModule>();
@@ -93,6 +96,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     const projection = projectedById.get(module.id);
 
     axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);
+    modulePositions.set(module.id, index);
     latestAxisModulePositions.set(module.axisId, index);
 
     if (!axisRootHeadings.has(module.axisId) && projection) {
@@ -154,6 +158,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     axisCountsByOrder,
     establishedFiveByOrder,
     lateralFromAxisCounts,
+    modulePositions,
     latestAxisModulePositions,
     latestLateralFromAxisPositions,
     axisTips,
@@ -416,6 +421,39 @@ function structuralRecencyPenalty(
   return 0;
 }
 
+function matureDormancyPenalty(
+  state: TreeState,
+  context: GrowthContext,
+  candidate: Omit<Candidate, "score">,
+): number {
+  if (state.growthIndex < MATURE_STRUCTURE_HORIZON) return 0;
+
+  if (candidate.relation === "lateral") {
+    const parentPosition = context.modulePositions.get(candidate.parent.id);
+    if (parentPosition === undefined) return 0;
+    const structuralAge = state.modules.length - 1 - parentPosition;
+    if (structuralAge <= 24) return 0;
+
+    // Juvenile buds gain readiness with age so the young crown can establish.
+    // In a mature organism, long-unused buds should become progressively less
+    // likely to define ordinary crown growth unless a future disturbance model
+    // explicitly reactivates them.
+    const baseDecay = (structuralAge - 24) * 0.012;
+    const deepDormancy = Math.max(0, structuralAge - 100) * 0.004;
+    return Math.min(2.4, baseDecay + deepDormancy);
+  }
+
+  const latestAxisPosition =
+    context.latestAxisModulePositions.get(candidate.parent.axisId);
+  if (latestAxisPosition === undefined) return 0;
+  const dormancyGap = state.modules.length - 1 - latestAxisPosition;
+  if (dormancyGap <= 24) return 0;
+
+  const baseDecay = (dormancyGap - 24) * 0.008;
+  const deepDormancy = Math.max(0, dormancyGap - 100) * 0.004;
+  return Math.min(1.8, baseDecay + deepDormancy);
+}
+
 function architectureScore(
   state: TreeState,
   context: GrowthContext,
@@ -576,7 +614,8 @@ function scoreCandidate(
     crownGapScore(state, context, end, candidate.length, traits) +
     firstOrderSide +
     architectureScore(state, context, candidate, traits) -
-    structuralRecencyPenalty(state, context, candidate) +
+    structuralRecencyPenalty(state, context, candidate) -
+    matureDormancyPenalty(state, context, candidate) +
     jitter;
 
   return { ...candidate, score };
@@ -672,6 +711,7 @@ function lateralCandidates(
     if (!projection) continue;
 
     const order = parent.order + 1;
+    if (eventIndex > MATURE_STRUCTURE_HORIZON && order === 1) continue;
     const divergence = lateralDivergence(
       state,
       eventIndex,
