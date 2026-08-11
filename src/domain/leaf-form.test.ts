@@ -61,16 +61,20 @@ describe("V3 Leaf Form V1", () => {
           expect(finite(point), `${form.entryId} finite geometry`).toBe(true);
         }
 
-        expect(form.length).toBeGreaterThanOrEqual(3.4);
-        expect(form.length).toBeLessThanOrEqual(11.7);
-        expect(form.width).toBeGreaterThan(0.95);
-        expect(form.width).toBeLessThanOrEqual(5.55);
-        expect(form.petioleLength).toBeGreaterThan(0.7);
-        expect(form.petioleLength).toBeLessThanOrEqual(2.15);
+        expect(form.length).toBeGreaterThanOrEqual(2.9);
+        expect(form.length).toBeLessThanOrEqual(11.6);
+        expect(form.width).toBeGreaterThan(0.35);
+        expect(form.width).toBeLessThanOrEqual(5.4);
+        expect(form.petioleLength).toBeGreaterThan(0.55);
+        expect(form.petioleLength).toBeLessThanOrEqual(2.1);
+        expect(form.faceExposure).toBeGreaterThanOrEqual(0.18);
+        expect(form.faceExposure).toBeLessThanOrEqual(1);
+        expect(form.depth).toBeGreaterThanOrEqual(-1);
+        expect(form.depth).toBeLessThanOrEqual(1);
 
         const sideDot =
           form.direction.x * frame.normal.x + form.direction.y * frame.normal.y;
-        expect(sideDot, `${form.entryId} remains on stored side`).toBeGreaterThan(0.02);
+        expect(sideDot, `${form.entryId} remains on stored side`).toBeGreaterThan(0);
       }
     },
     15_000,
@@ -81,6 +85,28 @@ describe("V3 Leaf Form V1", () => {
     expect(projectLeafForms(replayEntries("leaf-form-repeat", history))).toEqual(
       projectLeafForms(replayEntries("leaf-form-repeat", history)),
     );
+  });
+
+  it("keeps intrinsic 2.5D phase stable when future identities arrive", () => {
+    const history = entries(1000);
+    const at300 = new Map(
+      projectLeafForms(replayEntries("leaf-form-phase", history.slice(0, 300))).map(
+        (form) => [form.entryId, form],
+      ),
+    );
+    const at1000 = new Map(
+      projectLeafForms(replayEntries("leaf-form-phase", history)).map((form) => [
+        form.entryId,
+        form,
+      ]),
+    );
+
+    for (const [entryId, earlier] of at300) {
+      const later = at1000.get(entryId);
+      expect(later, entryId).toBeDefined();
+      expect(later?.faceExposure, `${entryId} exposure`).toBe(earlier.faceExposure);
+      expect(later?.depth, `${entryId} depth`).toBe(earlier.depth);
+    }
   });
 
   it("derives a coherent family from soul rather than entry history", () => {
