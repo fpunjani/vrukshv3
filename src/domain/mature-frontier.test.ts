@@ -37,15 +37,22 @@ describe("V3 mature frontier diagnostics", () => {
       first.medianLateralParentStructuralAge,
       first.p90LateralParentStructuralAge,
       first.maxLateralParentStructuralAge,
+      first.lateralParentOver50Fraction,
+      first.lateralParentOver100Fraction,
+      first.lateralParentOver200Fraction,
       first.medianContinuationDormancyGap,
       first.p90ContinuationDormancyGap,
       first.maxContinuationDormancyGap,
+      first.continuationDormancyOver50Fraction,
+      first.continuationDormancyOver100Fraction,
       first.postHorizonVerticalFraction,
       first.recentVerticalFraction,
       first.legacyScaffoldModuleShare,
       first.crownWidth,
       first.crownHeight,
       first.crownAspect,
+      ...first.postHorizonVerticalFractionByOrder,
+      ...first.recentVerticalFractionByOrder,
     ]) {
       expect(Number.isFinite(value)).toBe(true);
       expect(value).toBeGreaterThanOrEqual(0);
@@ -53,9 +60,16 @@ describe("V3 mature frontier diagnostics", () => {
 
     for (const fraction of [
       first.legacyWoodLateralFraction,
+      first.lateralParentOver50Fraction,
+      first.lateralParentOver100Fraction,
+      first.lateralParentOver200Fraction,
+      first.continuationDormancyOver50Fraction,
+      first.continuationDormancyOver100Fraction,
       first.postHorizonVerticalFraction,
       first.recentVerticalFraction,
       first.legacyScaffoldModuleShare,
+      ...first.postHorizonVerticalFractionByOrder,
+      ...first.recentVerticalFractionByOrder,
     ]) {
       expect(fraction).toBeLessThanOrEqual(1);
     }
@@ -70,5 +84,8 @@ describe("V3 mature frontier diagnostics", () => {
     expect(diagnostics.postHorizonContinuations).toBe(0);
     expect(diagnostics.newOrder1Axes).toBe(0);
     expect(diagnostics.legacyWoodLateralActivations).toBe(0);
+    expect(diagnostics.lateralParentOver50Fraction).toBe(0);
+    expect(diagnostics.continuationDormancyOver50Fraction).toBe(0);
+    expect(diagnostics.postHorizonVerticalFractionByOrder.every((value) => value === 0)).toBe(true);
   });
 });
