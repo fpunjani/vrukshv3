@@ -589,6 +589,109 @@ function matureAttractor(
   };
 }
 
+interface MatureAttractorWorldPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function matureAttractorWorldPoint(
+  context: GrowthContext,
+  eventIndex: number,
+  attractor: NormalizedVolumePoint,
+): MatureAttractorWorldPoint {
+  const ageLog = Math.log2(
+    Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON),
+  );
+  const horizontalScale = 1 + ageLog * 0.18;
+  const verticalScale = 1 + ageLog * 0.14;
+  const reference = context.matureReferenceBounds;
+  const cushion = 6;
+  const minX = reference.minX * horizontalScale - cushion;
+  const maxX = reference.maxX * horizontalScale + cushion;
+  const topY = reference.minY * verticalScale - cushion;
+  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);
+
+  return {
+    x: minX + ((attractor.x + 1) / 2) * (maxX - minX),
+    y: attractor.y * topY,
+    z: attractor.z * depthHalfSpan,
+  };
+}
+
+function headingToward(start: Point, target: Point): number {
+  return (Math.atan2(target.x - start.x, -(target.y - start.y)) * 180) / Math.PI;
+}
+
+function normalizeHeadingDelta(degrees: number): number {
+  return ((degrees + 540) % 360) - 180;
+}
+
+function matureSteeringAttractors(
+  state: TreeState,
+  context: GrowthContext,
+  eventIndex: number,
+  parentPoint: Point,
+  parentDepth: number,
+  limit = 2,
+): NormalizedVolumePoint[] {
+  const terminalTips = context.axisTips
+    .map((tip) => context.spatialById.get(tip.id))
+    .filter((tip): tip is ProjectedSpatialSegment => Boolean(tip))
+    .map((tip) =>
+      normalizedMaturePoint(context, eventIndex, tip.end, tip.endDepth),
+    );
+  const parentNormalized = normalizedMaturePoint(
+    context,
+    eventIndex,
+    parentPoint,
+    parentDepth,
+  );
+  const KILL_RADIUS = 0.13;
+  const available: Array<{ attractor: NormalizedVolumePoint; distance: number; index: number }> = [];
+
+  for (let index = 0; index < 32; index += 1) {
+    const attractor = matureAttractor(state.soul, index);
+    let currentDistance = Number.POSITIVE_INFINITY;
+    for (const tip of terminalTips) {
+      currentDistance = Math.min(
+        currentDistance,
+        normalizedDistance(tip, attractor),
+      );
+    }
+    if (currentDistance <= KILL_RADIUS) continue;
+    available.push({
+      attractor,
+      distance: normalizedDistance(parentNormalized, attractor),
+      index,
+    });
+  }
+
+  available.sort(
+    (a, b) => a.distance - b.distance || a.index - b.index,
+  );
+  return available.slice(0, Math.max(0, limit)).map((item) => item.attractor);
+}
+
+function steeredContinuationDepthDelta(
+  context: GrowthContext,
+  eventIndex: number,
+  spatialParent: ProjectedSpatialSegment,
+  targetDepth: number,
+  length: number,
+): number {
+  const cap = length * 0.3;
+  const desired = (targetDepth - spatialParent.endDepth) * 0.45;
+  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);
+  const minimumDelta = -depthHalfSpan - spatialParent.endDepth;
+  const maximumDelta = depthHalfSpan - spatialParent.endDepth;
+  return clamp(
+    desired,
+    Math.max(-cap, minimumDelta),
+    Math.min(cap, maximumDelta),
+  );
+}
+
 function normalizedDistance(
   a: NormalizedVolumePoint,
   b: NormalizedVolumePoint,
@@ -993,6 +1096,53 @@ function continuationCandidates(
         traits,
       );
       if (scored) result.push(scored);
+    }
+
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      const spatialParent = context.spatialById.get(parent.id);
+      if (!spatialParent) continue;
+      const targets = matureSteeringAttractors(
+        state,
+        context,
+        eventIndex,
+        projection.end,
+        spatialParent.endDepth,
+        2,
+      );
+
+      for (const target of targets) {
+        const worldTarget = matureAttractorWorldPoint(context, eventIndex, target);
+        const desiredHeading = headingToward(projection.end, worldTarget);
+        const turn = clamp(
+          normalizeHeadingDelta(desiredHeading - baseHeading),
+          -16,
+          16,
+        );
+        const heading = clamp(baseHeading + turn, -82, 82);
+        const steeredDepthDelta = steeredContinuationDepthDelta(
+          context,
+          eventIndex,
+          spatialParent,
+          worldTarget.z,
+          length,
+        );
+        const scored = scoreCandidate(
+          state,
+          context,
+          eventIndex,
+          {
+            parent,
+            relation: "continuation",
+            axisId: parent.axisId,
+            order: parent.order,
+            heading,
+            length,
+            depthDelta: steeredDepthDelta,
+          },
+          traits,
+        );
+        if (scored) result.push(scored);
+      }
     }
   }
 
