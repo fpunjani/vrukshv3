@@ -42,7 +42,7 @@ The accepted projection includes:
 - stable 2.5D phyllotactic exposure/depth derived from immutable birth chronology + module phase;
 - status-neutral intrinsic form.
 
-The normal-dominant fishbone prototype, random-angle-only fix, and larger-leaf-only fix were rejected before the final browser PASS.
+The normal-dominant fishbone prototype, random-angle-only fix, and larger-leaf-only fix were rejected before the final browser PASS. A later audit corrected a remaining global upward-bearing bias without changing historical attachment or schema.
 
 Tree Lab exposes the accepted individual geometry with `?leaves=1`.
 
@@ -60,9 +60,7 @@ The accepted derived hierarchy is:
 
 Bucket membership is deterministic, exact, traceable, nested, and append-stable. Future entries may join an existing bucket, but they cannot move an older identity to another bucket.
 
-Each medium/far bucket uses its **earliest historical member** as a stable representative. Cluster geometry is derived from that representative against current wood; it does not average current members or globally repack them.
-
-The first far diagnostic was rejected because buckets looked like giant leaves. The accepted far diagnostic uses broader local canopy masses while retaining the tree's scaffold/crown identity.
+The current medium/far diagnostic uses the earliest historical member as a stable representative. The **membership contract is accepted**, but the pre-season audit now treats that particular geometric anchor as provisional pending a topology-based spatial-fidelity comparison.
 
 Measured long-history compression for the regression soul:
 
@@ -72,9 +70,25 @@ Measured long-history compression for the regression soul:
 | 10,000 | 471 | 2,017 | 368 |
 | 30,000 | 857 | 3,749 | 614 |
 
-A dedicated `?long=1` Tree Lab mode reconstructs one organism once and compares medium vs far from the exact same `TreeState`. Browser gates at 3k / 10k / 30k passed without constructing 30,000 individual blades.
+A dedicated `?long=1` Tree Lab mode reconstructs one organism once and compares medium vs far from the exact same `TreeState`. Browser gates at 3k / 10k / 30k pass without constructing 30,000 individual blades.
 
 Canopy LOD is **not final canopy art**. Current ellipses/colors are diagnostic representations of accepted identity-scale semantics.
+
+### Pre-season foundation audit: active checkpoint
+
+Before adding seasonal styling, V3 is deliberately auditing whether the accepted layers are strong enough for a lifetime product rather than only a 0–1,000-entry visual demo.
+
+The audit has already found and corrected two concrete issues on its branch:
+
+- live append chronology did not fully match canonical `(createdAt, ID)` replay ordering for equal timestamps;
+- old duplicate entry IDs were only guaranteed idempotent at the current tip rather than at the domain boundary.
+
+It also identified two deeper areas that require measurement before further art direction:
+
+- **mature growth-front behavior after 1,000 entries** — long-history QA currently proves validity/scale more strongly than old-tree morphology;
+- **LOD geometric anchoring** — stable bucket membership is sound, but earliest-leaf representative geometry may not be the best spatial anchor for a large persistent wood neighbourhood.
+
+Season work is paused until these are explicitly gated. See `docs/PRE_SEASON_FOUNDATION_AUDIT.md`.
 
 ## Scale contract
 
@@ -86,7 +100,7 @@ Long-life QA verifies identity count, historical attachment validity, append-onl
 
 The accepted 0–1,000 structural cadence remains unchanged. Beyond 1,000, mature structural opportunities thin on a square-root schedule so wood can keep growing for life without becoming linear in entry count.
 
-30,000 remains a stress target, not a cap.
+30,000 remains a stress target, not a cap. The pre-season audit adds the missing question: **does that valid long-lived structure still mature convincingly, not merely remain technically legal?**
 
 ## Architecture
 
@@ -102,20 +116,21 @@ Growth events derive possible buds from the existing organism. Candidates compet
 
 ### Derived presentation
 
-History projects into structural chords and cubic tapered wood. Permanent foliage attachments project into branch-local frames and Leaf Form V1. Canopy LOD then derives stable medium/far buckets and representative geometry without mutating history.
+History projects into structural chords and cubic tapered wood. Permanent foliage attachments project into branch-local frames and Leaf Form V1. Canopy LOD then derives stable medium/far buckets without mutating history.
 
 React/SVG consumes those derived structures; it is not the tree model.
 
 ## Read first
 
 - `docs/GROWTH_CONSTITUTION.md` — binding product/growth semantics.
+- `docs/PRE_SEASON_FOUNDATION_AUDIT.md` — current audit, risks, and checkpoint order.
 - `docs/STRUCTURAL_ENGINE.md` — structural-engine design.
-- `docs/SKELETON_ACCEPTANCE.md` — accepted skeleton contract.
+- `docs/SKELETON_ACCEPTANCE.md` — accepted 0–1,000 skeleton contract.
 - `docs/FOLIAGE_CONSTITUTION.md` — binding foliage identity semantics.
 - `docs/FOLIAGE_ATTACHMENT.md` — accepted attachment + longevity policy.
 - `docs/LEAF_FORM_V1.md` — accepted individual-leaf geometry.
-- `docs/CANOPY_LOD.md` — accepted uncapped identity-scale representation contract.
-- `AGENTS.md` — product and visual design intent.
+- `docs/CANOPY_LOD.md` — accepted uncapped identity-scale representation semantics.
+- `AGENTS.md` — product and visual design intent; Growth Constitution takes precedence on meaning.
 
 ## Run
 
@@ -147,6 +162,8 @@ CI renders:
 - medium/far LOD identity matrices at 300 / 1000;
 - one-organism medium-vs-far long-history gates at 3k / 10k / 30k.
 
+The next foundation work will add multi-soul post-1k morphology evidence without turning every normal PR into an unnecessarily expensive 30k sweep.
+
 ## Working rules
 
 1. Never make foliage or atmosphere compensate for structural failure.
@@ -157,19 +174,19 @@ CI renders:
 6. Identity is uncapped; renderer detail may scale down without deleting history.
 7. LOD may simplify representation but may never re-host, delete, or renumber historical identities.
 8. Do not introduce product infrastructure simply to compensate for deterministic-model inefficiency.
+9. **An accepted checkpoint locks its contract, not every coefficient or diagnostic rendering trick.** Replace derived implementation details when stronger evidence exists; do not rewrite the historical truths downstream work relies on.
+10. Product guidance must not describe tree size, activity, completion, season, or visual richness as a measure of user worth.
 
-## Next checkpoint: seasonal / presentational foliage expression
+## Next checkpoint: mature foundation before seasonal expression
 
-The lower layers are now locked enough to begin visual expression without making art carry structural responsibility.
+The season contract is useful and remains available on `v3-season-expression`, but implementation is paused.
 
-The next checkpoint should define **reversible present-day expression** over accepted foliage/LOD:
+The immediate sequence is:
 
-- season changes appearance, never topology or identity;
-- calendar age, recent rhythm, entry status, and season remain separate axes;
-- inactivity may read as dormancy but never decay/punishment;
-- open/completed/archived status should not become a worth hierarchy;
-- close Leaf Form and medium/far LOD need one coherent palette/expression system;
-- seasons must be reversible without rewriting historical attachment or bucket membership;
-- diagnostic art direction can finally begin moving toward Vruksh's warm, vibrant, nurturing Shin-hanga-inspired target.
+1. merge the foundation integrity corrections;
+2. add Mature Frontier V1 diagnostics and multi-soul long-history morphology QA while preserving accepted 0–1,000 history;
+3. test a stable topology-derived LOD geometric anchor without changing bucket membership;
+4. define the time/persistence/model-version contract, including when calendar age begins;
+5. resume reversible seasonal expression.
 
-Motion, flowers/completion effects, and final product UI should remain later checkpoints until seasonal/presentational semantics are proven.
+Only then should Vruksh layer entry-state expression, recent-rhythm cues, motion, final Shin-hanga-inspired botanical treatment, and product UI/backend around a foundation we can defend for years rather than just for the current screenshots.
