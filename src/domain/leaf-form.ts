@@ -71,7 +71,7 @@ function combine(
   forwardBias: number,
   lightBias: number,
 ): Point {
-  const tangentWeight = Math.max(0.48, Math.min(0.7, forwardBias));
+  const tangentWeight = Math.max(0.38, Math.min(0.78, forwardBias));
   const normalWeight = 1 - tangentWeight;
   return normalize({
     x: normal.x * normalWeight + tangent.x * tangentWeight,
@@ -79,9 +79,11 @@ function combine(
   });
 }
 
+function attachmentProgress(position: number): number {
+  return Math.max(0, Math.min(1, (position - 0.18) / (0.92 - 0.18)));
+}
+
 function orderLengthScale(order: number): number {
-  // Early trunk identities remain visible but modest. The actual canopy-bearing
-  // orders are allowed enough blade area to occupy the space around sparse wood.
   if (order <= 0) return 0.58;
   if (order === 1) return 0.78;
   if (order === 2) return 1;
@@ -102,18 +104,26 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
 
   return projectFoliageFrames(state).map((frame) => {
     const key = `leaf-form:${frame.entryId}`;
+    const progress = attachmentProgress(frame.position);
+
+    // Positional variation gives a module a coherent fan instead of a row of
+    // parallel blades: basal leaves bear more laterally; distal leaves sweep
+    // forward along the supporting wood. Identity jitter only softens the fan.
+    const positionalSweep = (progress - 0.5) * 0.26;
     const forwardBias = Math.max(
-      0.45,
+      0.36,
       Math.min(
-        0.72,
-        family.forwardBias + keyedRange(state.soul, `${key}:forward`, -0.055, 0.055),
+        0.8,
+        family.forwardBias +
+          positionalSweep +
+          keyedRange(state.soul, `${key}:forward`, -0.035, 0.035),
       ),
     );
     const lightBias = Math.max(
       0.03,
       Math.min(
         0.29,
-        family.lightBias + keyedRange(state.soul, `${key}:light`, -0.04, 0.04),
+        family.lightBias + keyedRange(state.soul, `${key}:light`, -0.035, 0.035),
       ),
     );
     const baseDirection = combine(
@@ -122,30 +132,34 @@ export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
       forwardBias,
       lightBias,
     );
-    const angleJitter = keyedRange(state.soul, `${key}:angle`, -22, 22);
+    const angleJitter = keyedRange(state.soul, `${key}:angle`, -11, 11);
     let direction = normalize(rotate(baseDirection, angleJitter));
 
     const sideDot = direction.x * frame.normal.x + direction.y * frame.normal.y;
-    if (sideDot < 0.1) {
+    if (sideDot < 0.08) {
       direction = normalize({
-        x: direction.x * 0.76 + frame.normal.x * 0.24,
-        y: direction.y * 0.76 + frame.normal.y * 0.24,
+        x: direction.x * 0.78 + frame.normal.x * 0.22,
+        y: direction.y * 0.78 + frame.normal.y * 0.22,
       });
     }
 
+    // Mild positional scale variation avoids a rigid repeated envelope while
+    // keeping the soul-defined family dominant.
+    const positionalScale = 0.94 + Math.sin(progress * Math.PI) * 0.1;
     const length =
       family.baseLength *
       orderLengthScale(frame.order) *
-      keyedRange(state.soul, `${key}:length`, 0.84, 1.16);
+      positionalScale *
+      keyedRange(state.soul, `${key}:length`, 0.86, 1.14);
     const width =
       length *
       family.widthRatio *
-      keyedRange(state.soul, `${key}:width`, 0.9, 1.1);
+      keyedRange(state.soul, `${key}:width`, 0.91, 1.09);
     const petioleLength =
       family.petioleScale *
       orderPetioleScale(frame.order) *
-      keyedRange(state.soul, `${key}:petiole`, 0.85, 1.15);
-    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.1, 0.1);
+      keyedRange(state.soul, `${key}:petiole`, 0.87, 1.13);
+    const asymmetry = keyedRange(state.soul, `${key}:asymmetry`, -0.095, 0.095);
     const leftWidth = width * (1 + asymmetry);
     const rightWidth = width * (1 - asymmetry);
 
