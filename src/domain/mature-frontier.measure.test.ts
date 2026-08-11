@@ -33,7 +33,7 @@ function historicalPrefix(state: TreeState, count: number): TreeState {
 }
 
 const measureIt =
-  process.env.MATURE_FRONTIER_MEASURE === "1" ? it : it.skip;
+  import.meta.env.VITE_MATURE_FRONTIER_MEASURE === "1" ? it : it.skip;
 
 describe("Mature Frontier V1 measurement", () => {
   measureIt(
