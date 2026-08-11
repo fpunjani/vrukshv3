@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { diagnoseCurvedWood, diagnoseTree } from "./diagnostics";
 import { replayEntries } from "./growth";
 import { diagnoseMorphology } from "./morphology";
 import type { Entry } from "./types";
@@ -43,6 +44,24 @@ describe("V3 scaffold morphology baseline", () => {
     );
 
     console.log("MORPHOLOGY_BASELINE", JSON.stringify(report));
+
+    const aspectOutlierState = replayEntries("diagnostic-soul-20", HISTORY);
+    console.log(
+      "ASPECT_OUTLIER",
+      JSON.stringify({
+        tree: diagnoseTree(aspectOutlierState),
+        morphology: diagnoseMorphology(aspectOutlierState),
+      }),
+    );
+
+    const curveOutlierState = replayEntries("curve-soul-5", HISTORY);
+    console.log(
+      "CURVE_OUTLIER",
+      JSON.stringify({
+        curve: diagnoseCurvedWood(curveOutlierState, 8),
+        morphology: diagnoseMorphology(curveOutlierState),
+      }),
+    );
 
     for (const row of report) {
       expect(Number.isFinite(row.lateralFraction)).toBe(true);
