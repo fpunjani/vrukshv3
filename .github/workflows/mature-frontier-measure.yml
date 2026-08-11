@@ -2,9 +2,6 @@ name: Mature Frontier Measure
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - v3-mature-ramification-i
 
 permissions:
   contents: read
