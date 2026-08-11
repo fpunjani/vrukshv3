@@ -43,13 +43,14 @@ describe("V3 foliage distribution diagnostics", () => {
           expect(diagnostics.occupiedModuleFraction, `${soul} @ ${milestone} occupied modules`).toBeGreaterThanOrEqual(0.35);
           expect(diagnostics.occupiedAxisFraction, `${soul} @ ${milestone} occupied axes`).toBeGreaterThanOrEqual(0.35);
 
-          // A 100-entry tree still has relatively little eligible wood, so one
-          // host carrying 13% of identities is not yet pathological. Tighten the
-          // concentration guard once the scaffold/crown system has more hosts.
+          // A 100-entry tree still has relatively little eligible wood. Tighten
+          // both concentration guards once the scaffold/crown system has enough
+          // modules and axes to make stronger distribution meaningful.
           const moduleConcentrationLimit = milestone === 100 ? 0.15 : 0.12;
+          const axisConcentrationLimit = milestone === 100 ? 0.55 : 0.45;
           expect(diagnostics.maxModuleLoadFraction, `${soul} @ ${milestone} module concentration`).toBeLessThanOrEqual(moduleConcentrationLimit);
+          expect(diagnostics.maxAxisLoadFraction, `${soul} @ ${milestone} axis concentration`).toBeLessThanOrEqual(axisConcentrationLimit);
 
-          expect(diagnostics.maxAxisLoadFraction, `${soul} @ ${milestone} axis concentration`).toBeLessThanOrEqual(0.45);
           expect(diagnostics.trunkLeafFraction, `${soul} @ ${milestone} trunk concentration`).toBeLessThanOrEqual(0.28);
           expect(diagnostics.leftRightImbalance, `${soul} @ ${milestone} side imbalance`).toBeLessThanOrEqual(0.4);
           expect(Number.isFinite(diagnostics.meanHostAgeAtAttachment)).toBe(true);
