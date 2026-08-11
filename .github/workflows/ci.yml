@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p visual-gate/skeleton visual-gate/attachments visual-gate/leaves visual-gate/lod-module visual-gate/lod-axis
+          mkdir -p visual-gate/skeleton visual-gate/attachments visual-gate/leaves visual-gate/lod-module visual-gate/lod-axis visual-gate/lod-long
           npm exec vite -- preview --host 127.0.0.1 --port 4173 > /tmp/vruksh-vite.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid || true' EXIT
@@ -103,6 +103,20 @@ jobs:
               --window-size=1600,5000 \
               --screenshot="visual-gate/lod-axis/count-${count}.png" \
               "http://127.0.0.1:4173/?count=${count}&soul=ash-01&lod=axis"
+          done
+
+          # Long-history mode reconstructs one soul once per page and compares
+          # medium/far from that same TreeState. It never draws every individual
+          # historical blade at these entry counts.
+          for count in 3000 10000 30000; do
+            "$chrome" \
+              --headless \
+              --disable-gpu \
+              --no-sandbox \
+              --hide-scrollbars \
+              --window-size=1600,2200 \
+              --screenshot="visual-gate/lod-long/count-${count}.png" \
+              "http://127.0.0.1:4173/?long=1&count=${count}&soul=ash-01"
           done
 
       - name: Upload Tree Lab visual gate
