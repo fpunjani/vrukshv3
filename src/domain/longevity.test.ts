@@ -22,6 +22,18 @@ const HISTORY: Entry[] = Array.from({ length: 30001 }, (_, index) =>
   entry(index + 1),
 );
 
+const LOD_BUDGETS = new Map<number, { medium: number; far: number }>([
+  // First measured implementation:
+  // 3k: 994 medium / 167 far
+  // 10k: 2017 medium / 368 far
+  // 30k: 3749 medium / 614 far
+  // Ceilings retain useful headroom without allowing a quiet return toward
+  // one render primitive per identity.
+  [3000, { medium: 1200, far: 220 }],
+  [10000, { medium: 2400, far: 450 }],
+  [30000, { medium: 4500, far: 750 }],
+]);
+
 function historicalPrefix(state: TreeState, entries: number): TreeState {
   return {
     schemaVersion: 2,
@@ -46,9 +58,6 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   }
   expect(invalidHosts).toBe(0);
 
-  // Long-life states must preserve the same structural invariants we enforce
-  // inside the 0-1000 visual-development horizon. Longevity is not allowed to
-  // become a weaker mode just because structural opportunities are sparser.
   const structure = diagnoseTree(state);
   expect(structure.invariantErrors).toEqual([]);
   expect(structure.crossings).toBe(0);
@@ -58,7 +67,6 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(Number.isFinite(structure.height)).toBe(true);
   expect(Number.isFinite(structure.aspectRatio)).toBe(true);
 
-  // Wood must keep developing, but entries must never map 1:1 to branches.
   expect(state.modules.length).toBeGreaterThan(50);
   expect(state.modules.length).toBeLessThan(expectedEntries / 4);
 
@@ -79,11 +87,15 @@ function validateLongHistory(state: TreeState, expectedEntries: number): void {
   expect(far.buckets.length).toBeLessThanOrEqual(state.modules.length * 2);
   expect(far.buckets.length).toBeLessThanOrEqual(medium.buckets.length);
 
-  // Temporary measurement used to set evidence-based budget ceilings. Remove
-  // once the first long-history LOD distribution is locked into regression.
-  console.log(
-    `LOD_COUNTS entries=${expectedEntries} modules=${state.modules.length} medium=${medium.buckets.length} far=${far.buckets.length}`,
-  );
+  const budget = LOD_BUDGETS.get(expectedEntries);
+  if (budget) {
+    expect(medium.buckets.length, `${expectedEntries} medium LOD budget`).toBeLessThanOrEqual(
+      budget.medium,
+    );
+    expect(far.buckets.length, `${expectedEntries} far LOD budget`).toBeLessThanOrEqual(
+      budget.far,
+    );
+  }
 }
 
 function expectBucketPrefixStable(
@@ -115,9 +127,6 @@ describe("V3 long-life organism", () => {
       expectBucketPrefixStable(at10000, at30000, "module");
       expectBucketPrefixStable(at10000, at30000, "axis");
 
-      // The rendered mature wood must also remain mechanically coherent at the
-      // longevity horizon. Three samples per curve keep this as a broad safety
-      // gate rather than turning the long-history test into a rendering benchmark.
       const curved = diagnoseCurvedWood(at30000, 3);
       expect(curved.curveCrossings).toBe(0);
       expect(curved.crowdedPairs).toBe(0);
