@@ -432,26 +432,26 @@ function matureDormancyPenalty(
     const parentPosition = context.modulePositions.get(candidate.parent.id);
     if (parentPosition === undefined) return 0;
     const structuralAge = state.modules.length - 1 - parentPosition;
-    if (structuralAge <= 24) return 0;
+    if (structuralAge <= 50) return 0;
 
     // Juvenile buds gain readiness with age so the young crown can establish.
     // In a mature organism, long-unused buds should become progressively less
     // likely to define ordinary crown growth unless a future disturbance model
     // explicitly reactivates them.
-    const baseDecay = (structuralAge - 24) * 0.012;
-    const deepDormancy = Math.max(0, structuralAge - 100) * 0.004;
-    return Math.min(2.4, baseDecay + deepDormancy);
+    const baseDecay = (structuralAge - 50) * 0.007;
+    const deepDormancy = Math.max(0, structuralAge - 140) * 0.0025;
+    return Math.min(1.6, baseDecay + deepDormancy);
   }
 
   const latestAxisPosition =
     context.latestAxisModulePositions.get(candidate.parent.axisId);
   if (latestAxisPosition === undefined) return 0;
   const dormancyGap = state.modules.length - 1 - latestAxisPosition;
-  if (dormancyGap <= 24) return 0;
+  if (dormancyGap <= 50) return 0;
 
-  const baseDecay = (dormancyGap - 24) * 0.008;
-  const deepDormancy = Math.max(0, dormancyGap - 100) * 0.004;
-  return Math.min(1.8, baseDecay + deepDormancy);
+  const baseDecay = (dormancyGap - 50) * 0.0045;
+  const deepDormancy = Math.max(0, dormancyGap - 140) * 0.002;
+  return Math.min(1.2, baseDecay + deepDormancy);
 }
 
 function architectureScore(
