@@ -10,6 +10,7 @@ export interface LeafFamilyTraits {
   petioleScale: number;
   forwardBias: number;
   lightBias: number;
+  sagBias: number;
   tipTension: number;
 }
 
@@ -41,8 +42,11 @@ export function deriveLeafFamilyTraits(soul: string): LeafFamilyTraits {
     baseLength: keyedRange(soul, "leaf-family:length", 7.4, 9.2),
     widthRatio: keyedRange(soul, "leaf-family:width-ratio", 0.32, 0.43),
     petioleScale: keyedRange(soul, "leaf-family:petiole", 1.2, 1.75),
-    forwardBias: keyedRange(soul, "leaf-family:forward-bias", 0.52, 0.66),
-    lightBias: keyedRange(soul, "leaf-family:light-bias", 0.1, 0.22),
+    // Leaf bearing is outward-first. Forward and light-seeking tendencies are
+    // secondary family traits rather than global instructions to point up.
+    forwardBias: keyedRange(soul, "leaf-family:forward-bias", 0.18, 0.3),
+    lightBias: keyedRange(soul, "leaf-family:light-bias", 0.025, 0.055),
+    sagBias: keyedRange(soul, "leaf-family:sag-bias", 0.045, 0.085),
     tipTension: keyedRange(soul, "leaf-family:tip-tension", 0.52, 0.7),
   };
 }
@@ -69,31 +73,24 @@ function offset(point: Point, direction: Point, distance: number): Point {
   };
 }
 
-function combine(
-  normal: Point,
-  tangent: Point,
-  forwardBias: number,
-  lightBias: number,
-  faceExposure: number,
-): Point {
-  const tangentWeight = Math.max(0.38, Math.min(0.78, forwardBias));
-  const normalWeight =
-    (1 - tangentWeight) * (0.32 + Math.max(0, Math.min(1, faceExposure)) * 0.68);
-  return normalize({
-    x: normal.x * normalWeight + tangent.x * tangentWeight,
-    y: normal.y * normalWeight + tangent.y * tangentWeight - lightBias,
-  });
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function attachmentProgress(position: number): number {
-  return Math.max(0, Math.min(1, (position - 0.18) / (0.92 - 0.18)));
+  return clamp((position - 0.18) / (0.92 - 0.18), 0, 1);
 }
 
 function phyllotacticProjection(
   soul: string,
   moduleId: string,
   bornAtEvent: number,
-): { faceExposure: number; depth: number } {
+): {
+  faceExposure: number;
+  depth: number;
+  outwardPhase: number;
+  forwardPhase: number;
+} {
   // Birth chronology gives each identity a stable phase that can never be
   // renumbered by future leaves. The module-specific offset prevents every
   // branch from sharing the same projection pattern.
@@ -107,9 +104,13 @@ function phyllotacticProjection(
     ((modulePhase + bornAtEvent * GOLDEN_ANGLE_DEGREES) % 180 + 180) % 180;
   const halfPlaneAngle = wrapped - 90;
   const radians = (halfPlaneAngle * Math.PI) / 180;
+  const outwardPhase = Math.cos(radians);
+  const forwardPhase = Math.sin(radians);
   return {
-    faceExposure: Math.max(0.18, Math.cos(radians)),
-    depth: Math.sin(radians),
+    faceExposure: Math.max(0.18, outwardPhase),
+    depth: forwardPhase,
+    outwardPhase,
+    forwardPhase,
   };
 }
 
@@ -129,55 +130,98 @@ function orderPetioleScale(order: number): number {
   return 1;
 }
 
+function orderSagScale(order: number): number {
+  if (order <= 1) return 1;
+  if (order === 2) return 0.82;
+  if (order === 3) return 0.68;
+  return 0.58;
+}
+
+function bearingDirection(
+  state: TreeState,
+  key: string,
+  frame: ReturnType<typeof projectFoliageFrames>[number],
+  family: LeafFamilyTraits,
+  progress: number,
+  outwardPhase: number,
+  forwardPhase: number,
+): Point {
+  // The stored side-normal is the primary bearing. Phyllotactic phase changes
+  // how strongly the blade presents outward and introduces a small stable
+  // forward/back component around the twig without ever re-hosting it.
+  const outwardWeight = 0.72 + outwardPhase * 0.12;
+  const phaseForward = forwardPhase * 0.07;
+
+  // Basal leaves remain more lateral and carry a little more weight. Distal
+  // leaves sweep forward and receive a modest light-seeking lift. Crucially,
+  // neither tangent-following nor light is strong enough to make "up" the
+  // default bearing for the whole crown.
+  const forwardWeight = clamp(
+    family.forwardBias +
+      progress * 0.2 +
+      phaseForward +
+      keyedRange(state.soul, `${key}:forward`, -0.035, 0.035),
+    0.1,
+    0.52,
+  );
+  const lightLift = clamp(
+    family.lightBias +
+      progress * 0.03 +
+      keyedRange(state.soul, `${key}:light`, -0.012, 0.012),
+    0.008,
+    0.09,
+  );
+  const sag =
+    family.sagBias *
+    (1 - progress * 0.72) *
+    orderSagScale(frame.order) *
+    keyedRange(state.soul, `${key}:sag`, 0.82, 1.18);
+
+  const base = normalize({
+    x: frame.normal.x * outwardWeight + frame.tangent.x * forwardWeight,
+    // Screen-space positive Y is downward. Light is therefore a small
+    // negative-Y modifier while sag is a positive-Y modifier.
+    y:
+      frame.normal.y * outwardWeight +
+      frame.tangent.y * forwardWeight -
+      lightLift +
+      sag,
+  });
+
+  const angleJitter = keyedRange(state.soul, `${key}:angle`, -12, 12);
+  let direction = normalize(rotate(base, angleJitter));
+
+  // Preserve the permanent side even after the bearing modifiers. This is a
+  // safety rail, not the main source of direction.
+  const sideDot = direction.x * frame.normal.x + direction.y * frame.normal.y;
+  if (sideDot < 0.08) {
+    direction = normalize({
+      x: direction.x * 0.68 + frame.normal.x * 0.32,
+      y: direction.y * 0.68 + frame.normal.y * 0.32,
+    });
+  }
+
+  return direction;
+}
+
 export function projectLeafForms(state: TreeState): ProjectedLeafForm[] {
   const family = deriveLeafFamilyTraits(state.soul);
 
   return projectFoliageFrames(state).map((frame) => {
     const key = `leaf-form:${frame.entryId}`;
     const progress = attachmentProgress(frame.position);
-    const { faceExposure, depth } = phyllotacticProjection(
-      state.soul,
-      frame.moduleId,
-      frame.bornAtEvent,
-    );
+    const { faceExposure, depth, outwardPhase, forwardPhase } =
+      phyllotacticProjection(state.soul, frame.moduleId, frame.bornAtEvent);
 
-    // Basal leaves bear more laterally; distal leaves sweep forward along the
-    // supporting wood. The 2.5D exposure then modulates how strongly that side
-    // normal survives projection onto the screen.
-    const positionalSweep = (progress - 0.5) * 0.26;
-    const forwardBias = Math.max(
-      0.36,
-      Math.min(
-        0.8,
-        family.forwardBias +
-          positionalSweep +
-          keyedRange(state.soul, `${key}:forward`, -0.03, 0.03),
-      ),
+    const direction = bearingDirection(
+      state,
+      key,
+      frame,
+      family,
+      progress,
+      outwardPhase,
+      forwardPhase,
     );
-    const lightBias = Math.max(
-      0.03,
-      Math.min(
-        0.29,
-        family.lightBias + keyedRange(state.soul, `${key}:light`, -0.03, 0.03),
-      ),
-    );
-    const baseDirection = combine(
-      frame.normal,
-      frame.tangent,
-      forwardBias,
-      lightBias,
-      faceExposure,
-    );
-    const angleJitter = keyedRange(state.soul, `${key}:angle`, -8, 8);
-    let direction = normalize(rotate(baseDirection, angleJitter));
-
-    const sideDot = direction.x * frame.normal.x + direction.y * frame.normal.y;
-    if (sideDot < 0.035) {
-      direction = normalize({
-        x: direction.x * 0.8 + frame.normal.x * 0.2,
-        y: direction.y * 0.8 + frame.normal.y * 0.2,
-      });
-    }
 
     const positionalScale = 0.94 + Math.sin(progress * Math.PI) * 0.1;
     const depthLengthScale = 0.84 + faceExposure * 0.16;
