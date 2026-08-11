@@ -1,16 +1,16 @@
-name: JC Spatial Mature Measure
+name: JE0 Spatial Mature Measure
 
 on:
   push:
     branches:
-      - v3-spatial-depth-jc
+      - v3-spatial-depth-je0-successor
 
 permissions:
   contents: read
 
 jobs:
   measure:
-    if: github.event.head_commit.message == 'Measure JC spatial use once'
+    if: github.event.head_commit.message == 'Measure JE0 spatial use once'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -38,7 +38,7 @@ jobs:
       - name: Upload report
         uses: actions/upload-artifact@v7
         with:
-          name: spatial-mature-report
+          name: je0-spatial-mature-report
           path: spatial-mature-report.txt
           if-no-files-found: error
           retention-days: 14
