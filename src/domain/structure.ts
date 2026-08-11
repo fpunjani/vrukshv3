@@ -15,6 +15,9 @@ const MAX_ORDER = 4;
 const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
+const MATURE_STRUCTURE_HORIZON = 1000;
+const MATURE_TIP_STRUCTURAL_WINDOW = 64;
+const MATURE_LATERAL_STRUCTURAL_WINDOW = 48;
 
 interface Candidate {
   parent: GrowthModule;
@@ -43,6 +46,7 @@ interface GrowthContext {
   axisCountsByOrder: Map<number, number>;
   establishedFiveByOrder: Map<number, number>;
   lateralFromAxisCounts: Map<string, number>;
+  modulePositions: Map<string, number>;
   latestAxisModulePositions: Map<string, number>;
   latestLateralFromAxisPositions: Map<string, number>;
   axisTips: ProjectedSegment[];
@@ -83,6 +87,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   const axisModuleCounts = new Map<string, number>();
   const axisOrderCounts = new Map<number, Map<string, number>>();
   const lateralFromAxisCounts = new Map<string, number>();
+  const modulePositions = new Map<string, number>();
   const latestAxisModulePositions = new Map<string, number>();
   const latestLateralFromAxisPositions = new Map<string, number>();
   const latestFirstOrderModuleByAxis = new Map<string, GrowthModule>();
@@ -93,6 +98,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     const projection = projectedById.get(module.id);
 
     axisModuleCounts.set(module.axisId, (axisModuleCounts.get(module.axisId) ?? 0) + 1);
+    modulePositions.set(module.id, index);
     latestAxisModulePositions.set(module.axisId, index);
 
     if (!axisRootHeadings.has(module.axisId) && projection) {
@@ -154,6 +160,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     axisCountsByOrder,
     establishedFiveByOrder,
     lateralFromAxisCounts,
+    modulePositions,
     latestAxisModulePositions,
     latestLateralFromAxisPositions,
     axisTips,
@@ -384,8 +391,15 @@ function baseVigor(
   parentAge: number,
   traits: TreeTraits,
 ): number {
+  // True topological order may continue during mature fine-twig renewal, but
+  // biological/mechanical behavior saturates at the accepted fine-twig class.
+  const mechanicalOrder = Math.min(order, MAX_ORDER);
+
   if (relation === "continuation") {
-    return 1.28 + (traits.apicalDominance * 1.3) / (1 + order * 0.55);
+    return (
+      1.28 +
+      (traits.apicalDominance * 1.3) / (1 + mechanicalOrder * 0.55)
+    );
   }
 
   const budAge = Math.max(0, parentAge - MIN_LATERAL_AGE);
@@ -394,7 +408,7 @@ function baseVigor(
     1.0 +
     (1 - traits.apicalDominance) * 0.7 +
     accumulatedReadiness -
-    order * 0.14
+    mechanicalOrder * 0.14
   );
 }
 
@@ -591,8 +605,18 @@ function continuationCandidates(
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
-    if (parent.order > MAX_ORDER) continue;
+    if (eventIndex <= MATURE_STRUCTURE_HORIZON && parent.order > MAX_ORDER) {
+      continue;
+    }
     if (context.continuationParents.has(parent.id)) continue;
+
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
+      if (latestAxisPosition === undefined) continue;
+      const structuralDormancy =
+        state.modules.length - 1 - latestAxisPosition;
+      if (structuralDormancy > MATURE_TIP_STRUCTURAL_WINDOW) continue;
+    }
 
     const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
@@ -658,10 +682,22 @@ function lateralCandidates(
   const result: Candidate[] = [];
 
   for (const parent of state.modules) {
-    if (parent.order >= MAX_ORDER) continue;
+    if (eventIndex <= MATURE_STRUCTURE_HORIZON && parent.order >= MAX_ORDER) {
+      continue;
+    }
     if (context.lateralParents.has(parent.id)) continue;
     if (!context.continuationParents.has(parent.id)) continue;
     if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
+
+    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+      // Ordinary mature development does not invent new primary scaffolds from
+      // old trunk buds. Renewal remains local to recent living crown wood.
+      if (parent.order === 0) continue;
+      const parentPosition = context.modulePositions.get(parent.id);
+      if (parentPosition === undefined) continue;
+      const structuralAge = state.modules.length - 1 - parentPosition;
+      if (structuralAge > MATURE_LATERAL_STRUCTURAL_WINDOW) continue;
+    }
 
     const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
     if (axisModules < minimumAxisModulesBeforeLateral(parent.order, traits)) {
