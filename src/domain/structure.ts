@@ -1,5 +1,6 @@
 import { projectTree } from "./geometry";
 import { keyedRange } from "./random";
+import { compareStableStrings } from "./stable-order";
 import {
   pointFrom,
   segmentToSegmentDistance,
@@ -55,6 +56,7 @@ interface GrowthContext {
   bounds: Bounds;
   matureReferenceBounds: Bounds;
   continuationParents: Set<string>;
+  successorParents: Set<string>;
   lateralParents: Set<string>;
   axisModuleCounts: Map<string, number>;
   axisCountsByOrder: Map<number, number>;
@@ -104,6 +106,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   );
   const moduleById = new Map(state.modules.map((module) => [module.id, module]));
   const continuationParents = new Set<string>();
+  const successorParents = new Set<string>();
   const lateralParents = new Set<string>();
   const axisModuleCounts = new Map<string, number>();
   const axisOrderCounts = new Map<number, Map<string, number>>();
@@ -134,14 +137,17 @@ function buildGrowthContext(state: TreeState): GrowthContext {
       latestFirstOrderModuleByAxis.set(module.axisId, module);
     }
 
+    if (
+      module.parentId &&
+      (module.relation === "continuation" || module.relation === "renewal")
+    ) {
+      successorParents.add(module.parentId);
+    }
     if (module.parentId && module.relation === "continuation") {
       continuationParents.add(module.parentId);
     }
 
-    if (
-      module.parentId &&
-      (module.relation === "lateral" || module.relation === "renewal")
-    ) {
+    if (module.parentId && module.relation === "lateral") {
       lateralParents.add(module.parentId);
       const parentAxis = moduleById.get(module.parentId)?.axisId;
       if (parentAxis) {
@@ -166,7 +172,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
   }
 
   const axisTips = state.modules
-    .filter((module) => !continuationParents.has(module.id))
+    .filter((module) => !successorParents.has(module.id))
     .map((module) => projectedById.get(module.id))
     .filter((segment): segment is ProjectedSegment => Boolean(segment));
 
@@ -182,6 +188,7 @@ function buildGrowthContext(state: TreeState): GrowthContext {
     bounds: boundsFor(segments),
     matureReferenceBounds,
     continuationParents,
+    successorParents,
     lateralParents,
     axisModuleCounts,
     axisCountsByOrder,
@@ -779,7 +786,7 @@ function continuationCandidates(
 
   for (const parent of state.modules) {
     if (parent.order > MAX_ORDER) continue;
-    if (context.continuationParents.has(parent.id)) continue;
+    if (context.successorParents.has(parent.id)) continue;
 
     if (eventIndex > MATURE_STRUCTURE_HORIZON) {
       const latestAxisPosition = context.latestAxisModulePositions.get(parent.axisId);
@@ -945,11 +952,10 @@ function renewalCandidates(
   if (eventIndex <= MATURE_STRUCTURE_HORIZON) return [];
 
   const result: Candidate[] = [];
+
   for (const parent of state.modules) {
     if (parent.order !== MAX_ORDER) continue;
-    if (context.lateralParents.has(parent.id)) continue;
-    if (!context.continuationParents.has(parent.id)) continue;
-    if (state.growthIndex - parent.bornAtEvent < MIN_LATERAL_AGE) continue;
+    if (context.successorParents.has(parent.id)) continue;
 
     const parentPosition = context.modulePositions.get(parent.id);
     if (parentPosition === undefined) continue;
@@ -957,18 +963,13 @@ function renewalCandidates(
     if (structuralAge > MATURE_SIDE_STRUCTURAL_WINDOW) continue;
 
     const axisModules = context.axisModuleCounts.get(parent.axisId) ?? 0;
-    if (axisModules < minimumAxisModulesBeforeLateral(MAX_ORDER, traits)) continue;
+    if (axisModules < preferredAxisModules(MAX_ORDER, traits)) continue;
 
     const projection = context.projectedById.get(parent.id);
     if (!projection) continue;
 
-    const divergence = lateralDivergence(
-      state,
-      eventIndex,
-      parent,
-      MAX_ORDER,
-      traits,
-    );
+    const divergence =
+      lateralDivergence(state, eventIndex, parent, MAX_ORDER, traits) * 0.55;
     const length = candidateLength(
       state,
       context,
@@ -980,8 +981,10 @@ function renewalCandidates(
     );
 
     for (const side of [-1, 1] as const) {
-      const rawHeading = projection.heading + side * divergence;
-      const heading = Math.max(-82, Math.min(82, rawHeading * 0.97));
+      const heading = Math.max(
+        -82,
+        Math.min(82, projection.heading + side * divergence),
+      );
       const depthDelta = candidateDepthDelta(
         state,
         context,
@@ -1079,7 +1082,7 @@ export function growStructuralEvent(
     (a, b) =>
       b.score - a.score ||
       a.order - b.order ||
-      a.parent.id.localeCompare(b.parent.id) ||
+      compareStableStrings(a.parent.id, b.parent.id) ||
       a.heading - b.heading ||
       a.depthDelta - b.depthDelta,
   );
