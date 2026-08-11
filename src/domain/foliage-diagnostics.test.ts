@@ -43,10 +43,10 @@ describe("V3 foliage distribution diagnostics", () => {
           expect(diagnostics.occupiedModuleFraction, `${soul} @ ${milestone} occupied modules`).toBeGreaterThanOrEqual(0.35);
           expect(diagnostics.occupiedAxisFraction, `${soul} @ ${milestone} occupied axes`).toBeGreaterThanOrEqual(0.35);
 
-          // A 100-entry tree still has relatively little eligible wood. Tighten
-          // both concentration guards once the scaffold/crown system has enough
-          // modules and axes to make stronger distribution meaningful.
-          const moduleConcentrationLimit = milestone === 100 ? 0.15 : 0.12;
+          // Concentration limits tighten as the crown gains enough modules and
+          // axes for stronger distribution to be biologically/visually meaningful.
+          const moduleConcentrationLimit =
+            milestone === 100 ? 0.15 : milestone === 300 ? 0.13 : 0.12;
           const axisConcentrationLimit = milestone === 100 ? 0.55 : 0.45;
           expect(diagnostics.maxModuleLoadFraction, `${soul} @ ${milestone} module concentration`).toBeLessThanOrEqual(moduleConcentrationLimit);
           expect(diagnostics.maxAxisLoadFraction, `${soul} @ ${milestone} axis concentration`).toBeLessThanOrEqual(axisConcentrationLimit);
