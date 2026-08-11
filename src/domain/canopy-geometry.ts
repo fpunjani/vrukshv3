@@ -26,8 +26,6 @@ function representativeForms(
   state: TreeState,
   entryIds: ReadonlySet<string>,
 ): Map<string, ProjectedLeafForm> {
-  // Leaf Form V1 is intrinsic to one identity + current wood; it does not read
-  // sibling foliage. Project only the representatives needed at this LOD.
   const projectionState: TreeState = {
     ...state,
     leaves: state.leaves.filter((leaf) => entryIds.has(leaf.entryId)),
@@ -37,25 +35,26 @@ function representativeForms(
   );
 }
 
-function clusterScale(level: ClusterDetailLevel, count: number): {
-  length: number;
-  width: number;
-} {
+function mediumScale(count: number): { length: number; width: number } {
   const density = Math.log2(Math.max(1, count) + 1);
-  if (level === "module") {
-    return {
-      length: 1.08 + Math.min(0.72, density * 0.12),
-      width: 1.16 + Math.min(0.92, density * 0.15),
-    };
-  }
   return {
-    length: 1.55 + Math.min(1.45, density * 0.2),
-    width: 1.8 + Math.min(2.1, density * 0.28),
+    length: 1.08 + Math.min(0.72, density * 0.12),
+    width: 1.16 + Math.min(0.92, density * 0.15),
+  };
+}
+
+function farScale(count: number): { length: number; widthFromLength: number } {
+  const density = Math.log2(Math.max(1, count) + 1);
+  return {
+    // Far buckets represent a local canopy mass, not one giant leaf. Keep the
+    // long axis compact and let width approach it as membership grows.
+    length: 1.45 + Math.min(1.05, density * 0.15),
+    widthFromLength: 0.72 + Math.min(0.55, density * 0.11),
   };
 }
 
 function centerFor(form: ProjectedLeafForm, level: ClusterDetailLevel): Point {
-  const distance = form.length * (level === "module" ? 0.58 : 0.72);
+  const distance = form.length * (level === "module" ? 0.58 : 0.64);
   return {
     x: form.base.x + form.direction.x * distance,
     y: form.base.y + form.direction.y * distance,
@@ -79,17 +78,27 @@ export function projectCanopyClusters(
         `Cannot project canopy cluster ${bucket.key}: representative ${bucket.representativeEntryId} has no Leaf Form V1 geometry`,
       );
     }
-    const scale = clusterScale(level, bucket.memberEntryIds.length);
+
+    const count = bucket.memberEntryIds.length;
+    const medium = level === "module" ? mediumScale(count) : null;
+    const far = level === "axis" ? farScale(count) : null;
+    const length = medium
+      ? form.length * medium.length
+      : form.length * (far?.length ?? 1);
+    const width = medium
+      ? Math.max(form.width, form.length * 0.2) * medium.width
+      : form.length * (far?.widthFromLength ?? 0.8);
+
     return {
       level,
       key: bucket.key,
       representativeEntryId: bucket.representativeEntryId,
       memberEntryIds: [...bucket.memberEntryIds],
-      memberCount: bucket.memberEntryIds.length,
+      memberCount: count,
       center: centerFor(form, level),
       direction: form.direction,
-      length: form.length * scale.length,
-      width: Math.max(form.width, form.length * 0.2) * scale.width,
+      length,
+      width,
       depth: form.depth,
       hostModuleId: form.moduleId,
     };
