@@ -1186,6 +1186,249 @@ function initialModule(
   };
 }
 
+export interface MatureCandidateReachabilityDiagnostics {
+  eventIndex: number;
+  legalCandidates: number;
+  distinctParents: number;
+  continuationCandidates: number;
+  lateralCandidates: number;
+  renewalCandidates: number;
+  continuationParents: number;
+  meanContinuationHeadingSpan: number;
+  maxContinuationHeadingSpan: number;
+  meanContinuationDepthOptions: number;
+  continuationParentsWithMultipleDepthOptions: number;
+  projectedInwardCandidateFraction: number;
+  radialInwardCandidateFraction: number;
+  uncolonizedAttractors: number;
+  improvableAttractors: number;
+  meaningfulImprovableAttractors: number;
+  improvableAttractorFraction: number;
+  meaningfulImprovableAttractorFraction: number;
+  meanBestAttractorImprovement: number;
+  maxBestAttractorImprovement: number;
+  candidatesWithPositiveOpportunity: number;
+  bestOpportunityScore: number;
+  winnerOpportunityScore: number;
+  winnerOpportunityRank: number;
+  winnerIsBestOpportunity: boolean;
+  winnerParentId: string | null;
+  winnerRelation: Exclude<GrowthRelation, "origin"> | null;
+  winnerScore: number;
+}
+
+function candidateSort(a: Candidate, b: Candidate): number {
+  return (
+    b.score - a.score ||
+    a.order - b.order ||
+    compareStableStrings(a.parent.id, b.parent.id) ||
+    a.heading - b.heading ||
+    a.depthDelta - b.depthDelta
+  );
+}
+
+/**
+ * Observational helper for JE3. It calls the exact mature candidate generators
+ * and legality/scoring path used by growStructuralEvent; it never mutates state.
+ */
+export function diagnoseMatureCandidateReachability(
+  state: TreeState,
+  eventIndex: number,
+): MatureCandidateReachabilityDiagnostics | null {
+  if (
+    eventIndex <= MATURE_STRUCTURE_HORIZON ||
+    state.modules.length === 0 ||
+    !shouldGrowStructure(eventIndex)
+  ) {
+    return null;
+  }
+
+  const traits = deriveTreeTraits(state.soul);
+  const context = buildGrowthContext(state);
+  const candidates = continuationCandidates(state, context, eventIndex, traits)
+    .concat(lateralCandidates(state, context, eventIndex, traits))
+    .concat(renewalCandidates(state, context, eventIndex, traits));
+
+  if (candidates.length === 0) return null;
+
+  const candidatePoints = candidates.map((candidate) => {
+    const parent2d = context.projectedById.get(candidate.parent.id);
+    const parent3d = context.spatialById.get(candidate.parent.id);
+    if (!parent2d || !parent3d) {
+      throw new Error(`JE3 candidate ${candidate.parent.id} is missing projection`);
+    }
+    const end = pointFrom(parent2d.end, candidate.heading, candidate.length);
+    const endDepth = parent3d.endDepth + candidate.depthDelta;
+    const parentNormalized = normalizedMaturePoint(
+      context,
+      eventIndex,
+      parent2d.end,
+      parent3d.endDepth,
+    );
+    const normalized = normalizedMaturePoint(
+      context,
+      eventIndex,
+      end,
+      endDepth,
+    );
+    return {
+      candidate,
+      normalized,
+      parentNormalized,
+      opportunity: matureVolumeOpportunityScore(
+        state,
+        context,
+        eventIndex,
+        end,
+        endDepth,
+      ),
+    };
+  });
+
+  const terminalTips = context.axisTips
+    .map((tip) => context.spatialById.get(tip.id))
+    .filter((tip): tip is ProjectedSpatialSegment => Boolean(tip))
+    .map((tip) =>
+      normalizedMaturePoint(context, eventIndex, tip.end, tip.endDepth),
+    );
+
+  const bestImprovements: number[] = [];
+  const ATTRACTOR_COUNT = 32;
+  const KILL_RADIUS = 0.13;
+  for (let index = 0; index < ATTRACTOR_COUNT; index += 1) {
+    const attractor = matureAttractor(state.soul, index);
+    let currentDistance = Number.POSITIVE_INFINITY;
+    for (const tip of terminalTips) {
+      currentDistance = Math.min(
+        currentDistance,
+        normalizedDistance(tip, attractor),
+      );
+    }
+    if (!Number.isFinite(currentDistance)) currentDistance = 2;
+    if (currentDistance <= KILL_RADIUS) continue;
+
+    let bestImprovement = 0;
+    for (const item of candidatePoints) {
+      bestImprovement = Math.max(
+        bestImprovement,
+        currentDistance - normalizedDistance(item.normalized, attractor),
+      );
+    }
+    bestImprovements.push(Math.max(0, bestImprovement));
+  }
+
+  const continuationByParent = new Map<
+    string,
+    { headings: number[]; depths: number[] }
+  >();
+  for (const candidate of candidates) {
+    if (candidate.relation !== "continuation") continue;
+    const group = continuationByParent.get(candidate.parent.id) ?? {
+      headings: [],
+      depths: [],
+    };
+    group.headings.push(candidate.heading);
+    group.depths.push(candidate.depthDelta);
+    continuationByParent.set(candidate.parent.id, group);
+  }
+
+  const headingSpans: number[] = [];
+  const depthOptions: number[] = [];
+  let multipleDepthParents = 0;
+  for (const group of continuationByParent.values()) {
+    headingSpans.push(
+      group.headings.length > 0
+        ? Math.max(...group.headings) - Math.min(...group.headings)
+        : 0,
+    );
+    const uniqueDepths = new Set(
+      group.depths.map((value) => value.toFixed(9)),
+    ).size;
+    depthOptions.push(uniqueDepths);
+    if (uniqueDepths > 1) multipleDepthParents += 1;
+  }
+
+  let projectedInward = 0;
+  let radialInward = 0;
+  for (const item of candidatePoints) {
+    if (
+      Math.abs(item.normalized.x) + 1e-9 <
+      Math.abs(item.parentNormalized.x)
+    ) {
+      projectedInward += 1;
+    }
+    if (
+      Math.hypot(item.normalized.x, item.normalized.z) + 1e-9 <
+      Math.hypot(item.parentNormalized.x, item.parentNormalized.z)
+    ) {
+      radialInward += 1;
+    }
+  }
+
+  const sorted = [...candidates].sort(candidateSort);
+  const winner = sorted[0];
+  const opportunitySorted = [...candidatePoints].sort(
+    (a, b) =>
+      b.opportunity - a.opportunity ||
+      candidateSort(a.candidate, b.candidate),
+  );
+  const winnerItem = candidatePoints.find(
+    (item) => item.candidate === winner,
+  );
+  const winnerOpportunityRank =
+    opportunitySorted.findIndex((item) => item.candidate === winner) + 1;
+
+  const positiveBest = bestImprovements.filter((value) => value > 1e-9);
+  const meaningfulBest = bestImprovements.filter((value) => value > 0.03);
+  const mean = (values: readonly number[]): number =>
+    values.length > 0
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : 0;
+
+  return {
+    eventIndex,
+    legalCandidates: candidates.length,
+    distinctParents: new Set(candidates.map((candidate) => candidate.parent.id)).size,
+    continuationCandidates: candidates.filter(
+      (candidate) => candidate.relation === "continuation",
+    ).length,
+    lateralCandidates: candidates.filter(
+      (candidate) => candidate.relation === "lateral",
+    ).length,
+    renewalCandidates: candidates.filter(
+      (candidate) => candidate.relation === "renewal",
+    ).length,
+    continuationParents: continuationByParent.size,
+    meanContinuationHeadingSpan: mean(headingSpans),
+    maxContinuationHeadingSpan:
+      headingSpans.length > 0 ? Math.max(...headingSpans) : 0,
+    meanContinuationDepthOptions: mean(depthOptions),
+    continuationParentsWithMultipleDepthOptions: multipleDepthParents,
+    projectedInwardCandidateFraction: projectedInward / candidates.length,
+    radialInwardCandidateFraction: radialInward / candidates.length,
+    uncolonizedAttractors: bestImprovements.length,
+    improvableAttractors: positiveBest.length,
+    meaningfulImprovableAttractors: meaningfulBest.length,
+    improvableAttractorFraction:
+      bestImprovements.length > 0 ? positiveBest.length / bestImprovements.length : 0,
+    meaningfulImprovableAttractorFraction:
+      bestImprovements.length > 0 ? meaningfulBest.length / bestImprovements.length : 0,
+    meanBestAttractorImprovement: mean(bestImprovements),
+    maxBestAttractorImprovement:
+      bestImprovements.length > 0 ? Math.max(...bestImprovements) : 0,
+    candidatesWithPositiveOpportunity: candidatePoints.filter(
+      (item) => item.opportunity > 1e-9,
+    ).length,
+    bestOpportunityScore: opportunitySorted[0]?.opportunity ?? 0,
+    winnerOpportunityScore: winnerItem?.opportunity ?? 0,
+    winnerOpportunityRank,
+    winnerIsBestOpportunity: winnerOpportunityRank === 1,
+    winnerParentId: winner.parent.id,
+    winnerRelation: winner.relation,
+    winnerScore: winner.score,
+  };
+}
+
 export function growStructuralEvent(
   state: TreeState,
   eventIndex: number,
