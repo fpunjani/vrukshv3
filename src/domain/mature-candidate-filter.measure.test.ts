@@ -71,7 +71,7 @@ suite("JE7 mature candidate-filter measurement", () => {
             ]),
           );
 
-          process.stdout.write(
+          console.log(
             `JE7_CANDIDATE_FILTER_METRIC ${JSON.stringify({
               soul,
               milestone,
@@ -90,7 +90,7 @@ suite("JE7 mature candidate-filter measurement", () => {
                 diagnostics.map((item) => item.candidatesWithPositiveOpportunity),
               ),
               rejectionCounts,
-            })}\n`,
+            })}`,
           );
         }
       }
