@@ -852,6 +852,17 @@ function architectureScore(
   const preferred = preferredAxisModules(candidate.order, traits);
 
   if (candidate.relation === "continuation") {
+    // JE6: juvenile fine-axis length shaping is not a lifetime merit signal.
+    // Preserve it exactly through 1k, but once the organism is mature,
+    // established fine continuations compete on space/opportunity/mechanics
+    // rather than being rewarded for shortness or punished for survival length.
+    if (
+      state.growthIndex >= MATURE_STRUCTURE_HORIZON &&
+      candidate.order >= 3
+    ) {
+      return 0;
+    }
+
     const deficit = Math.max(0, preferred - axisModules);
     const excess = Math.max(0, axisModules - preferred);
 
