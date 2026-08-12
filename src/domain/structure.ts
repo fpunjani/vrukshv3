@@ -28,6 +28,7 @@ const MIN_LATERAL_AGE = 3;
 const MIN_STRUCTURAL_CLEARANCE = 2.0;
 const HARD_MATURE_ASPECT = 1.02;
 const MATURE_STRUCTURE_HORIZON = 1000;
+const MATURE_STEERING_START = 3000;
 const MATURE_TIP_STRUCTURAL_WINDOW = 64;
 const MATURE_SCAFFOLD_RESERVE_PER_LINEAGE = 4;
 const MATURE_SIDE_STRUCTURAL_WINDOW = 48;
@@ -1209,7 +1210,7 @@ function continuationCandidates(
 ): Candidate[] {
   const result: Candidate[] = [];
   const steeringAttractors =
-    eventIndex > MATURE_STRUCTURE_HORIZON
+    eventIndex >= MATURE_STEERING_START
       ? uncolonizedMatureSteeringAttractors(state, context, eventIndex)
       : [];
 
@@ -1291,7 +1292,7 @@ function continuationCandidates(
       if (scored) result.push(scored);
     }
 
-    if (eventIndex > MATURE_STRUCTURE_HORIZON) {
+    if (eventIndex >= MATURE_STEERING_START) {
       const spatialParent = context.spatialById.get(parent.id);
       if (!spatialParent) continue;
       const targets = nearestMatureSteeringAttractors(
