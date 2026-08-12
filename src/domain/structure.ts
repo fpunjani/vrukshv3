@@ -41,6 +41,7 @@ interface Candidate {
   length: number;
   depthDelta: number;
   score: number;
+  steered?: boolean;
 }
 
 interface Bounds {
@@ -359,6 +360,39 @@ function insideMatureVolume(
     end.y <= 1e-9 &&
     Math.abs(endDepth) <= depthHalfSpan + 1e-9
   );
+}
+
+function matureVolumeFailureReason(
+  context: GrowthContext,
+  eventIndex: number,
+  end: Point,
+  endDepth: number,
+): "horizontal" | "vertical" | "depth" | null {
+  if (eventIndex <= MATURE_STRUCTURE_HORIZON) {
+    return Math.abs(endDepth) <= 1e-12 ? null : "depth";
+  }
+
+  const ageLog = Math.log2(Math.max(1, eventIndex / MATURE_STRUCTURE_HORIZON));
+  const horizontalScale = 1 + ageLog * 0.18;
+  const verticalScale = 1 + ageLog * 0.14;
+  const reference = context.matureReferenceBounds;
+  const cushion = 6;
+  const depthHalfSpan = matureDepthHalfSpan(context, eventIndex);
+
+  if (
+    end.x < reference.minX * horizontalScale - cushion - 1e-9 ||
+    end.x > reference.maxX * horizontalScale + cushion + 1e-9
+  ) {
+    return "horizontal";
+  }
+  if (
+    end.y < reference.minY * verticalScale - cushion - 1e-9 ||
+    end.y > 1e-9
+  ) {
+    return "vertical";
+  }
+  if (Math.abs(endDepth) > depthHalfSpan + 1e-9) return "depth";
+  return null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -974,6 +1008,26 @@ export interface CandidateScoreBreakdown {
   totalScore: number;
 }
 
+interface CandidateRejectionCounts {
+  missingProjection: number;
+  nonFiniteOrBelowGround: number;
+  tooShort: number;
+  outsideMatureVolume: number;
+  outsideMatureVolumeHorizontal: number;
+  outsideMatureVolumeVertical: number;
+  outsideMatureVolumeDepth: number;
+  broadCrownEnvelope: number;
+  spatialClearance: number;
+  baseOutsideMatureVolumeVertical: number;
+  steeredOutsideMatureVolumeVertical: number;
+  baseOutsideMatureVolumeHorizontal: number;
+  steeredOutsideMatureVolumeHorizontal: number;
+  baseSpatialClearance: number;
+  steeredSpatialClearance: number;
+}
+
+let candidateRejectionTrace: CandidateRejectionCounts | null = null;
+
 function candidateScoreBreakdown(
   state: TreeState,
   context: GrowthContext,
@@ -981,20 +1035,46 @@ function candidateScoreBreakdown(
   candidate: Omit<Candidate, "score">,
   traits: TreeTraits,
 ): CandidateScoreBreakdown | null {
+  const rejectionTrace = candidateRejectionTrace;
   const parent = context.projectedById.get(candidate.parent.id);
   const spatialParent = context.spatialById.get(candidate.parent.id);
-  if (!parent || !spatialParent) return null;
+  if (!parent || !spatialParent) {
+    if (rejectionTrace) rejectionTrace.missingProjection += 1;
+    return null;
+  }
 
   const start = parent.end;
   const end = pointFrom(start, candidate.heading, candidate.length);
   const endDepth = spatialParent.endDepth + candidate.depthDelta;
 
   if (!Number.isFinite(end.x) || !Number.isFinite(end.y) || end.y > 0) {
+    if (rejectionTrace) rejectionTrace.nonFiniteOrBelowGround += 1;
     return null;
   }
-  if (candidate.length <= 0.5) return null;
-  if (!insideMatureVolume(context, eventIndex, end, endDepth)) return null;
+  if (candidate.length <= 0.5) {
+    if (rejectionTrace) rejectionTrace.tooShort += 1;
+    return null;
+  }
+  if (!insideMatureVolume(context, eventIndex, end, endDepth)) {
+    if (rejectionTrace) {
+      const reason = matureVolumeFailureReason(context, eventIndex, end, endDepth);
+      rejectionTrace.outsideMatureVolume += 1;
+      if (reason === "horizontal") {
+        rejectionTrace.outsideMatureVolumeHorizontal += 1;
+        if (candidate.steered) rejectionTrace.steeredOutsideMatureVolumeHorizontal += 1;
+        else rejectionTrace.baseOutsideMatureVolumeHorizontal += 1;
+      }
+      if (reason === "vertical") {
+        rejectionTrace.outsideMatureVolumeVertical += 1;
+        if (candidate.steered) rejectionTrace.steeredOutsideMatureVolumeVertical += 1;
+        else rejectionTrace.baseOutsideMatureVolumeVertical += 1;
+      }
+      if (reason === "depth") rejectionTrace.outsideMatureVolumeDepth += 1;
+    }
+    return null;
+  }
   if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {
+    if (rejectionTrace) rejectionTrace.broadCrownEnvelope += 1;
     return null;
   }
 
@@ -1014,7 +1094,14 @@ function candidateScoreBreakdown(
           candidate.parent.id,
           context.spatialSegments,
         );
-  if (clearance < MIN_STRUCTURAL_CLEARANCE) return null;
+  if (clearance < MIN_STRUCTURAL_CLEARANCE) {
+    if (rejectionTrace) {
+      rejectionTrace.spatialClearance += 1;
+      if (candidate.steered) rejectionTrace.steeredSpatialClearance += 1;
+      else rejectionTrace.baseSpatialClearance += 1;
+    }
+    return null;
+  }
 
   const parentAge = state.growthIndex - candidate.parent.bornAtEvent;
   const spaceScore = Math.min(
@@ -1244,6 +1331,7 @@ function continuationCandidates(
             heading,
             length,
             depthDelta: steeredDepthDelta,
+            steered: true,
           },
           traits,
         );
@@ -1480,6 +1568,7 @@ export interface MatureCandidateReachabilityDiagnostics {
   winnerOrder: number;
   bestOpportunityOrder: number;
   breakEvenOpportunityWeight: number | null;
+  candidateRejectionCounts: CandidateRejectionCounts;
 }
 
 function candidateSort(a: Candidate, b: Candidate): number {
@@ -1510,9 +1599,28 @@ export function diagnoseMatureCandidateReachability(
 
   const traits = deriveTreeTraits(state.soul);
   const context = buildGrowthContext(state);
+  const rejectionCounts: CandidateRejectionCounts = {
+    missingProjection: 0,
+    nonFiniteOrBelowGround: 0,
+    tooShort: 0,
+    outsideMatureVolume: 0,
+    outsideMatureVolumeHorizontal: 0,
+    outsideMatureVolumeVertical: 0,
+    outsideMatureVolumeDepth: 0,
+    broadCrownEnvelope: 0,
+    spatialClearance: 0,
+    baseOutsideMatureVolumeVertical: 0,
+    steeredOutsideMatureVolumeVertical: 0,
+    baseOutsideMatureVolumeHorizontal: 0,
+    steeredOutsideMatureVolumeHorizontal: 0,
+    baseSpatialClearance: 0,
+    steeredSpatialClearance: 0,
+  };
+  candidateRejectionTrace = rejectionCounts;
   const candidates = continuationCandidates(state, context, eventIndex, traits)
     .concat(lateralCandidates(state, context, eventIndex, traits))
     .concat(renewalCandidates(state, context, eventIndex, traits));
+  candidateRejectionTrace = null;
 
   if (candidates.length === 0) return null;
 
@@ -1733,6 +1841,7 @@ export function diagnoseMatureCandidateReachability(
     winnerOrder: winner.order,
     bestOpportunityOrder: bestOpportunityItem.candidate.order,
     breakEvenOpportunityWeight,
+    candidateRejectionCounts: rejectionCounts,
   };
 }
 
