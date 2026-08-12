@@ -1,0 +1,48 @@
+name: Add JE5 Axis Context Diagnostics
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-je5-score-decomposition
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Stage JE5 axis context diagnostics'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: v3-spatial-depth-je5-score-decomposition
+
+      - name: Add winner/opportunity axis context
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/domain/structure.ts')
+          text = path.read_text()
+          old = '''  winnerBreakdown: CandidateScoreBreakdown;\n  bestOpportunityBreakdown: CandidateScoreBreakdown;\n  breakEvenOpportunityWeight: number | null;\n}\n'''
+          new = '''  winnerBreakdown: CandidateScoreBreakdown;\n  bestOpportunityBreakdown: CandidateScoreBreakdown;\n  winnerAxisModules: number;\n  bestOpportunityAxisModules: number;\n  winnerOrder: number;\n  bestOpportunityOrder: number;\n  breakEvenOpportunityWeight: number | null;\n}\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'interface marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''    winnerBreakdown: winnerItem.breakdown,\n    bestOpportunityBreakdown: bestOpportunityItem.breakdown,\n    breakEvenOpportunityWeight,\n'''
+          new = '''    winnerBreakdown: winnerItem.breakdown,\n    bestOpportunityBreakdown: bestOpportunityItem.breakdown,\n    winnerAxisModules:\n      context.axisModuleCounts.get(winner.parent.axisId) ?? 0,\n    bestOpportunityAxisModules:\n      context.axisModuleCounts.get(bestOpportunityItem.candidate.parent.axisId) ?? 0,\n    winnerOrder: winner.order,\n    bestOpportunityOrder: bestOpportunityItem.candidate.order,\n    breakEvenOpportunityWeight,\n'''
+          if text.count(old) != 1:
+            raise SystemExit(f'return marker count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Commit and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/je5-axis-context.yml
+          git add src/domain/structure.ts
+          git commit -m "Expose axis context in JE5 score diagnostics"
+          git push origin HEAD:v3-spatial-depth-je5-score-decomposition
