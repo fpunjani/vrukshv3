@@ -82,12 +82,6 @@ function relationCounts(relations: readonly (string | null)[]): Record<string, n
   return counts;
 }
 
-/**
- * JE6 hypothesis preview only. This does not change production scoring.
- * Mature, already-established order-3/4 continuations keep the juvenile
- * establishment bonus while no longer accumulating an unbounded excess-length
- * penalty. Everything else keeps its measured architecture contribution.
- */
 function matureNoExcessArchitecture(
   relation: Exclude<GrowthRelation, "origin"> | null,
   order: number,
@@ -98,6 +92,14 @@ function matureNoExcessArchitecture(
   const preferred = order === 3 ? 4 : 3;
   const deficit = Math.max(0, preferred - axisModules);
   return Math.min(2.5, deficit * 0.52);
+}
+
+function matureNeutralFineContinuationArchitecture(
+  relation: Exclude<GrowthRelation, "origin"> | null,
+  order: number,
+  measured: number,
+): number {
+  return relation === "continuation" && order >= 3 ? 0 : measured;
 }
 
 suite("JE5 mature score-composition measurement", () => {
@@ -115,27 +117,13 @@ suite("JE5 mature score-composition measurement", () => {
               state,
               actual.bornAtEvent,
             );
-            if (!diagnostic) {
-              throw new Error(
-                `Missing JE5 diagnostic for ${soul} event ${actual.bornAtEvent}`,
-              );
-            }
+            if (!diagnostic) throw new Error(`Missing JE5 diagnostic for ${soul} event ${actual.bornAtEvent}`);
             if (
               diagnostic.winnerParentId !== actual.parentId ||
               diagnostic.winnerRelation !== actual.relation
-            ) {
-              throw new Error(
-                `JE5 winner mismatch for ${soul} event ${actual.bornAtEvent}`,
-              );
-            }
-            if (
-              Math.abs(
-                diagnostic.winnerBreakdown.totalScore - diagnostic.winnerScore,
-              ) > 1e-9
-            ) {
-              throw new Error(
-                `JE5 score sum mismatch for ${soul} event ${actual.bornAtEvent}`,
-              );
+            ) throw new Error(`JE5 winner mismatch for ${soul} event ${actual.bornAtEvent}`);
+            if (Math.abs(diagnostic.winnerBreakdown.totalScore - diagnostic.winnerScore) > 1e-9) {
+              throw new Error(`JE5 score sum mismatch for ${soul} event ${actual.bornAtEvent}`);
             }
             return diagnostic;
           });
@@ -146,27 +134,17 @@ suite("JE5 mature score-composition measurement", () => {
               item.breakEvenOpportunityWeight !== null &&
               Number.isFinite(item.breakEvenOpportunityWeight),
           );
-          const breakEven = contests.map(
-            (item) => item.breakEvenOpportunityWeight as number,
-          );
+          const breakEven = contests.map((item) => item.breakEvenOpportunityWeight as number);
           const winnerOpportunityCapture = diagnostics.map((item) =>
             item.bestOpportunityScore > 1e-9
               ? item.winnerOpportunityScore / item.bestOpportunityScore
               : 1,
           );
 
-          const deltas = (
-            key: Parameters<typeof componentDelta>[2],
-          ): number[] =>
-            contests.map((item) =>
-              componentDelta(
-                item.winnerBreakdown,
-                item.bestOpportunityBreakdown,
-                key,
-              ),
-            );
+          const deltas = (key: Parameters<typeof componentDelta>[2]): number[] =>
+            contests.map((item) => componentDelta(item.winnerBreakdown, item.bestOpportunityBreakdown, key));
 
-          const hypothetical = diagnostics.map((item) => {
+          const noExcess = diagnostics.map((item) => {
             const winnerArchitecture = matureNoExcessArchitecture(
               item.winnerRelation,
               item.winnerOrder,
@@ -179,22 +157,29 @@ suite("JE5 mature score-composition measurement", () => {
               item.bestOpportunityAxisModules,
               item.bestOpportunityBreakdown.architectureContribution,
             );
-            const winnerScore =
-              item.winnerBreakdown.totalScore -
-              item.winnerBreakdown.architectureContribution +
-              winnerArchitecture;
-            const bestScore =
-              item.bestOpportunityBreakdown.totalScore -
-              item.bestOpportunityBreakdown.architectureContribution +
-              bestArchitecture;
+            const winnerScore = item.winnerBreakdown.totalScore - item.winnerBreakdown.architectureContribution + winnerArchitecture;
+            const bestScore = item.bestOpportunityBreakdown.totalScore - item.bestOpportunityBreakdown.architectureContribution + bestArchitecture;
+            return { bestOvertakesWinner: bestScore > winnerScore + 1e-9, scoreDelta: bestScore - winnerScore };
+          });
+
+          const neutralFine = diagnostics.map((item) => {
+            const winnerArchitecture = matureNeutralFineContinuationArchitecture(
+              item.winnerRelation,
+              item.winnerOrder,
+              item.winnerBreakdown.architectureContribution,
+            );
+            const bestArchitecture = matureNeutralFineContinuationArchitecture(
+              item.bestOpportunityRelation,
+              item.bestOpportunityOrder,
+              item.bestOpportunityBreakdown.architectureContribution,
+            );
+            const winnerScore = item.winnerBreakdown.totalScore - item.winnerBreakdown.architectureContribution + winnerArchitecture;
+            const bestScore = item.bestOpportunityBreakdown.totalScore - item.bestOpportunityBreakdown.architectureContribution + bestArchitecture;
             return {
               bestOvertakesWinner: bestScore > winnerScore + 1e-9,
               scoreDelta: bestScore - winnerScore,
-              winnerArchitectureDelta:
-                winnerArchitecture - item.winnerBreakdown.architectureContribution,
-              bestArchitectureDelta:
-                bestArchitecture -
-                item.bestOpportunityBreakdown.architectureContribution,
+              winnerArchitectureDelta: winnerArchitecture - item.winnerBreakdown.architectureContribution,
+              bestArchitectureDelta: bestArchitecture - item.bestOpportunityBreakdown.architectureContribution,
             };
           });
 
@@ -204,100 +189,40 @@ suite("JE5 mature score-composition measurement", () => {
               milestone,
               sampledEvents: diagnostics.length,
               opportunityContests: contests.length,
-              winnerIsBestOpportunityFraction: mean(
-                diagnostics.map((item) =>
-                  item.winnerIsBestOpportunity ? 1 : 0,
-                ),
-              ),
-              meanWinnerOpportunityRank: mean(
-                diagnostics.map((item) => item.winnerOpportunityRank),
-              ),
+              winnerIsBestOpportunityFraction: mean(diagnostics.map((item) => item.winnerIsBestOpportunity ? 1 : 0)),
+              meanWinnerOpportunityRank: mean(diagnostics.map((item) => item.winnerOpportunityRank)),
               meanWinnerOpportunityCapture: mean(winnerOpportunityCapture),
               meanBreakEvenOpportunityWeight: mean(breakEven),
               medianBreakEvenOpportunityWeight: quantile(breakEven, 0.5),
               p90BreakEvenOpportunityWeight: quantile(breakEven, 0.9),
-              breakEvenLe125Fraction: mean(
-                breakEven.map((value) => (value <= 1.25 ? 1 : 0)),
-              ),
-              breakEvenLe15Fraction: mean(
-                breakEven.map((value) => (value <= 1.5 ? 1 : 0)),
-              ),
-              breakEvenLe2Fraction: mean(
-                breakEven.map((value) => (value <= 2 ? 1 : 0)),
-              ),
-              breakEvenLe3Fraction: mean(
-                breakEven.map((value) => (value <= 3 ? 1 : 0)),
-              ),
-              meanWinnerMinusBestBaseVigor: mean(
-                deltas("baseVigorContribution"),
-              ),
+              breakEvenLe125Fraction: mean(breakEven.map((value) => value <= 1.25 ? 1 : 0)),
+              breakEvenLe15Fraction: mean(breakEven.map((value) => value <= 1.5 ? 1 : 0)),
+              breakEvenLe2Fraction: mean(breakEven.map((value) => value <= 2 ? 1 : 0)),
+              breakEvenLe3Fraction: mean(breakEven.map((value) => value <= 3 ? 1 : 0)),
+              meanWinnerMinusBestBaseVigor: mean(deltas("baseVigorContribution")),
               meanWinnerMinusBestSpace: mean(deltas("spaceContribution")),
-              meanWinnerMinusBestCrownEnvelope: mean(
-                deltas("crownEnvelopeContribution"),
-              ),
-              meanWinnerMinusBestFirstOrderSide: mean(
-                deltas("firstOrderSideContribution"),
-              ),
-              meanWinnerMinusBestArchitecture: mean(
-                deltas("architectureContribution"),
-              ),
-              meanWinnerMinusBestRecency: mean(
-                deltas("recencyContribution"),
-              ),
+              meanWinnerMinusBestCrownEnvelope: mean(deltas("crownEnvelopeContribution")),
+              meanWinnerMinusBestFirstOrderSide: mean(deltas("firstOrderSideContribution")),
+              meanWinnerMinusBestArchitecture: mean(deltas("architectureContribution")),
+              meanWinnerMinusBestRecency: mean(deltas("recencyContribution")),
               meanWinnerMinusBestJitter: mean(deltas("jitterContribution")),
-              meanWinnerMinusBestNonOpportunity: mean(
-                deltas("nonOpportunityScore"),
-              ),
-              meanWinnerMinusBestOpportunity: mean(
-                deltas("opportunityContribution"),
-              ),
-              meanWinnerArchitectureContribution: mean(
-                diagnostics.map(
-                  (item) => item.winnerBreakdown.architectureContribution,
-                ),
-              ),
-              meanBestOpportunityArchitectureContribution: mean(
-                diagnostics.map(
-                  (item) => item.bestOpportunityBreakdown.architectureContribution,
-                ),
-              ),
-              meanWinnerAxisModules: mean(
-                diagnostics.map((item) => item.winnerAxisModules),
-              ),
-              meanBestOpportunityAxisModules: mean(
-                diagnostics.map((item) => item.bestOpportunityAxisModules),
-              ),
-              winnerUnderEstablishedAxisFraction: mean(
-                diagnostics.map((item) =>
-                  item.winnerOrder >= 4 && item.winnerAxisModules < 3 ? 1 : 0,
-                ),
-              ),
-              winnerOrders: relationCounts(
-                diagnostics.map((item) => String(item.winnerOrder)),
-              ),
-              bestOpportunityOrders: relationCounts(
-                diagnostics.map((item) => String(item.bestOpportunityOrder)),
-              ),
-              winnerRelations: relationCounts(
-                diagnostics.map((item) => item.winnerRelation),
-              ),
-              bestOpportunityRelations: relationCounts(
-                diagnostics.map((item) => item.bestOpportunityRelation),
-              ),
-              hypotheticalNoMatureFineExcessBestOvertakesFraction: mean(
-                hypothetical.map((item) =>
-                  item.bestOvertakesWinner ? 1 : 0,
-                ),
-              ),
-              hypotheticalNoMatureFineExcessMeanBestMinusWinner: mean(
-                hypothetical.map((item) => item.scoreDelta),
-              ),
-              hypotheticalMeanWinnerArchitectureLift: mean(
-                hypothetical.map((item) => item.winnerArchitectureDelta),
-              ),
-              hypotheticalMeanBestArchitectureLift: mean(
-                hypothetical.map((item) => item.bestArchitectureDelta),
-              ),
+              meanWinnerMinusBestNonOpportunity: mean(deltas("nonOpportunityScore")),
+              meanWinnerMinusBestOpportunity: mean(deltas("opportunityContribution")),
+              meanWinnerArchitectureContribution: mean(diagnostics.map((item) => item.winnerBreakdown.architectureContribution)),
+              meanBestOpportunityArchitectureContribution: mean(diagnostics.map((item) => item.bestOpportunityBreakdown.architectureContribution)),
+              meanWinnerAxisModules: mean(diagnostics.map((item) => item.winnerAxisModules)),
+              meanBestOpportunityAxisModules: mean(diagnostics.map((item) => item.bestOpportunityAxisModules)),
+              winnerUnderEstablishedAxisFraction: mean(diagnostics.map((item) => item.winnerOrder >= 4 && item.winnerAxisModules < 3 ? 1 : 0)),
+              winnerOrders: relationCounts(diagnostics.map((item) => String(item.winnerOrder))),
+              bestOpportunityOrders: relationCounts(diagnostics.map((item) => String(item.bestOpportunityOrder))),
+              winnerRelations: relationCounts(diagnostics.map((item) => item.winnerRelation)),
+              bestOpportunityRelations: relationCounts(diagnostics.map((item) => item.bestOpportunityRelation)),
+              hypotheticalNoMatureFineExcessBestOvertakesFraction: mean(noExcess.map((item) => item.bestOvertakesWinner ? 1 : 0)),
+              hypotheticalNoMatureFineExcessMeanBestMinusWinner: mean(noExcess.map((item) => item.scoreDelta)),
+              hypotheticalNeutralMatureFineArchitectureBestOvertakesFraction: mean(neutralFine.map((item) => item.bestOvertakesWinner ? 1 : 0)),
+              hypotheticalNeutralMatureFineArchitectureMeanBestMinusWinner: mean(neutralFine.map((item) => item.scoreDelta)),
+              hypotheticalNeutralMeanWinnerArchitectureDelta: mean(neutralFine.map((item) => item.winnerArchitectureDelta)),
+              hypotheticalNeutralMeanBestArchitectureDelta: mean(neutralFine.map((item) => item.bestArchitectureDelta)),
               historyWinnerMatchFraction: 1,
             })}`,
           );
