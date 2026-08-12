@@ -1300,7 +1300,7 @@ function continuationCandidates(
         projection.end,
         spatialParent.endDepth,
         steeringAttractors,
-        2,
+        1,
       );
 
       for (const target of targets) {
