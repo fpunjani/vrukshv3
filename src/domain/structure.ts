@@ -1308,8 +1308,8 @@ function continuationCandidates(
         const desiredHeading = headingToward(projection.end, worldTarget);
         const turn = clamp(
           normalizeHeadingDelta(desiredHeading - baseHeading),
-          -16,
-          16,
+          -32,
+          32,
         );
         const heading = clamp(baseHeading + turn, -82, 82);
         const steeredDepthDelta = steeredContinuationDepthDelta(
