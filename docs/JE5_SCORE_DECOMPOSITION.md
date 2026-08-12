@@ -57,7 +57,8 @@ Across sampled 3k/10k/30k events report:
 - mean/median break-even multiplier;
 - fraction of events whose break-even is <=1.25 / 1.5 / 2 / 3;
 - mean winner-minus-best-opportunity delta for every non-opportunity score component;
-- relation mix of the highest-opportunity candidates.
+- relation mix of the highest-opportunity candidates;
+- winner versus best-opportunity axis module counts / branch order, so a large architecture delta can be traced back to establishment/excess-length mechanics rather than inferred from the score alone.
 
 ## Decision rule
 
