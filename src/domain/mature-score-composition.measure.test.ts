@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import { diagnoseMatureCandidateReachability } from "./structure";
 import { replayEntries } from "./growth";
 import type { CandidateScoreBreakdown } from "./structure";
-import type { Entry, GrowthModule, TreeState } from "./types";
+import type { Entry, GrowthModule, GrowthRelation, TreeState } from "./types";
 
 const ENABLED = import.meta.env.VITE_JE5_SCORE_MEASURE === "1";
 const suite = ENABLED ? describe : describe.skip;
@@ -82,6 +82,24 @@ function relationCounts(relations: readonly (string | null)[]): Record<string, n
   return counts;
 }
 
+/**
+ * JE6 hypothesis preview only. This does not change production scoring.
+ * Mature, already-established order-3/4 continuations keep the juvenile
+ * establishment bonus while no longer accumulating an unbounded excess-length
+ * penalty. Everything else keeps its measured architecture contribution.
+ */
+function matureNoExcessArchitecture(
+  relation: Exclude<GrowthRelation, "origin"> | null,
+  order: number,
+  axisModules: number,
+  measured: number,
+): number {
+  if (relation !== "continuation" || order < 3) return measured;
+  const preferred = order === 3 ? 4 : 3;
+  const deficit = Math.max(0, preferred - axisModules);
+  return Math.min(2.5, deficit * 0.52);
+}
+
 suite("JE5 mature score-composition measurement", () => {
   it(
     "decomposes actual winners versus highest-opportunity legal candidates",
@@ -147,6 +165,38 @@ suite("JE5 mature score-composition measurement", () => {
                 key,
               ),
             );
+
+          const hypothetical = diagnostics.map((item) => {
+            const winnerArchitecture = matureNoExcessArchitecture(
+              item.winnerRelation,
+              item.winnerOrder,
+              item.winnerAxisModules,
+              item.winnerBreakdown.architectureContribution,
+            );
+            const bestArchitecture = matureNoExcessArchitecture(
+              item.bestOpportunityRelation,
+              item.bestOpportunityOrder,
+              item.bestOpportunityAxisModules,
+              item.bestOpportunityBreakdown.architectureContribution,
+            );
+            const winnerScore =
+              item.winnerBreakdown.totalScore -
+              item.winnerBreakdown.architectureContribution +
+              winnerArchitecture;
+            const bestScore =
+              item.bestOpportunityBreakdown.totalScore -
+              item.bestOpportunityBreakdown.architectureContribution +
+              bestArchitecture;
+            return {
+              bestOvertakesWinner: bestScore > winnerScore + 1e-9,
+              scoreDelta: bestScore - winnerScore,
+              winnerArchitectureDelta:
+                winnerArchitecture - item.winnerBreakdown.architectureContribution,
+              bestArchitectureDelta:
+                bestArchitecture -
+                item.bestOpportunityBreakdown.architectureContribution,
+            };
+          });
 
           console.log(
             `JE5_SCORE_METRIC ${JSON.stringify({
@@ -222,14 +272,6 @@ suite("JE5 mature score-composition measurement", () => {
                   item.winnerOrder >= 4 && item.winnerAxisModules < 3 ? 1 : 0,
                 ),
               ),
-              bestOpportunityOverEstablishedAxisFraction: mean(
-                diagnostics.map((item) =>
-                  item.bestOpportunityOrder >= 4 &&
-                  item.bestOpportunityAxisModules > 3
-                    ? 1
-                    : 0,
-                ),
-              ),
               winnerOrders: relationCounts(
                 diagnostics.map((item) => String(item.winnerOrder)),
               ),
@@ -241,6 +283,20 @@ suite("JE5 mature score-composition measurement", () => {
               ),
               bestOpportunityRelations: relationCounts(
                 diagnostics.map((item) => item.bestOpportunityRelation),
+              ),
+              hypotheticalNoMatureFineExcessBestOvertakesFraction: mean(
+                hypothetical.map((item) =>
+                  item.bestOvertakesWinner ? 1 : 0,
+                ),
+              ),
+              hypotheticalNoMatureFineExcessMeanBestMinusWinner: mean(
+                hypothetical.map((item) => item.scoreDelta),
+              ),
+              hypotheticalMeanWinnerArchitectureLift: mean(
+                hypothetical.map((item) => item.winnerArchitectureDelta),
+              ),
+              hypotheticalMeanBestArchitectureLift: mean(
+                hypothetical.map((item) => item.bestArchitectureDelta),
               ),
               historyWinnerMatchFraction: 1,
             })}`,
