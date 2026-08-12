@@ -201,6 +201,41 @@ suite("JE5 mature score-composition measurement", () => {
               meanWinnerMinusBestOpportunity: mean(
                 deltas("opportunityContribution"),
               ),
+              meanWinnerArchitectureContribution: mean(
+                diagnostics.map(
+                  (item) => item.winnerBreakdown.architectureContribution,
+                ),
+              ),
+              meanBestOpportunityArchitectureContribution: mean(
+                diagnostics.map(
+                  (item) => item.bestOpportunityBreakdown.architectureContribution,
+                ),
+              ),
+              meanWinnerAxisModules: mean(
+                diagnostics.map((item) => item.winnerAxisModules),
+              ),
+              meanBestOpportunityAxisModules: mean(
+                diagnostics.map((item) => item.bestOpportunityAxisModules),
+              ),
+              winnerUnderEstablishedAxisFraction: mean(
+                diagnostics.map((item) =>
+                  item.winnerOrder >= 4 && item.winnerAxisModules < 3 ? 1 : 0,
+                ),
+              ),
+              bestOpportunityOverEstablishedAxisFraction: mean(
+                diagnostics.map((item) =>
+                  item.bestOpportunityOrder >= 4 &&
+                  item.bestOpportunityAxisModules > 3
+                    ? 1
+                    : 0,
+                ),
+              ),
+              winnerOrders: relationCounts(
+                diagnostics.map((item) => String(item.winnerOrder)),
+              ),
+              bestOpportunityOrders: relationCounts(
+                diagnostics.map((item) => String(item.bestOpportunityOrder)),
+              ),
               winnerRelations: relationCounts(
                 diagnostics.map((item) => item.winnerRelation),
               ),
