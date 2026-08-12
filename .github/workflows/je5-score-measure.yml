@@ -1,0 +1,44 @@
+name: JE5 Mature Score Composition Measure
+
+on:
+  push:
+    branches:
+      - v3-spatial-depth-je5-score-decomposition
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.event.head_commit.message == 'Measure JE5 score composition once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Measure score composition
+        shell: bash
+        env:
+          VITE_JE5_SCORE_MEASURE: "1"
+        run: |
+          set -euo pipefail
+          npm exec -- vitest run src/domain/mature-score-composition.measure.test.ts --reporter=verbose 2>&1 | tee je5-score-report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: je5-score-report
+          path: je5-score-report.txt
+          if-no-files-found: error
+          retention-days: 14
