@@ -25,8 +25,6 @@ function beforeEvent(finalState: TreeState, eventIndex: number): TreeState {
 
 describe("mature candidate reachability diagnostics", () => {
   it("is deterministic, reproduces history, and exposes the exact production score", () => {
-    // The fidelity contract only needs one genuine post-1k structural decision.
-    // Broad 3k/10k/30k reachability is covered by the dedicated JE3/JE4 sweep.
     const finalState = replayEntries("ash-01", entries(1500));
     const actual = [...finalState.modules]
       .reverse()
@@ -54,9 +52,17 @@ describe("mature candidate reachability diagnostics", () => {
       diagnostic?.winnerScore ?? 0,
       10,
     );
-    expect(diagnostic?.bestOpportunityBreakdown.totalScore).toBeFinite();
-    expect(diagnostic?.winnerBreakdown.nonOpportunityScore).toBeFinite();
-    expect(diagnostic?.bestOpportunityBreakdown.nonOpportunityScore).toBeFinite();
+    expect(
+      Number.isFinite(diagnostic?.bestOpportunityBreakdown.totalScore ?? NaN),
+    ).toBe(true);
+    expect(
+      Number.isFinite(diagnostic?.winnerBreakdown.nonOpportunityScore ?? NaN),
+    ).toBe(true);
+    expect(
+      Number.isFinite(
+        diagnostic?.bestOpportunityBreakdown.nonOpportunityScore ?? NaN,
+      ),
+    ).toBe(true);
     if (!diagnostic?.winnerIsBestOpportunity) {
       expect(diagnostic?.breakEvenOpportunityWeight).not.toBeNull();
       expect(diagnostic?.breakEvenOpportunityWeight ?? 0).toBeGreaterThanOrEqual(1);
