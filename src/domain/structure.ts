@@ -1464,6 +1464,10 @@ export interface MatureCandidateReachabilityDiagnostics {
   bestOpportunityRelation: Exclude<GrowthRelation, "origin"> | null;
   winnerBreakdown: CandidateScoreBreakdown;
   bestOpportunityBreakdown: CandidateScoreBreakdown;
+  winnerAxisModules: number;
+  bestOpportunityAxisModules: number;
+  winnerOrder: number;
+  bestOpportunityOrder: number;
   breakEvenOpportunityWeight: number | null;
 }
 
@@ -1711,6 +1715,12 @@ export function diagnoseMatureCandidateReachability(
     bestOpportunityRelation: bestOpportunityItem.candidate.relation,
     winnerBreakdown: winnerItem.breakdown,
     bestOpportunityBreakdown: bestOpportunityItem.breakdown,
+    winnerAxisModules:
+      context.axisModuleCounts.get(winner.parent.axisId) ?? 0,
+    bestOpportunityAxisModules:
+      context.axisModuleCounts.get(bestOpportunityItem.candidate.parent.axisId) ?? 0,
+    winnerOrder: winner.order,
+    bestOpportunityOrder: bestOpportunityItem.candidate.order,
     breakEvenOpportunityWeight,
   };
 }
