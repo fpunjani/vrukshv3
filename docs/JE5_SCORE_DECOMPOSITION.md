@@ -15,7 +15,7 @@ The next question is therefore not whether to add more directions or make the at
 
 JE5 must preserve JE4's exact candidate set, legality, scores, ordering, and persisted decisions.
 
-The implementation may refactor the existing score expression into a single internal breakdown helper only if the final total uses the same arithmetic terms and all historical-winner regression tests stay green.
+The implementation refactors the existing score expression into a single internal breakdown helper while preserving the exact production arithmetic. Historical-winner fidelity is tested.
 
 ## Exact score components
 
@@ -47,23 +47,29 @@ For events where the highest-opportunity candidate has strictly more opportunity
 
 Current JE4 uses `w = 1`.
 
-## Measurements
+## First measurement finding
 
-Across sampled 3k/10k/30k events report:
+Architecture is the dominant mature suppressor of highest-opportunity candidates. By 30k, the winner's mean architecture advantage is roughly +2.2 to +3.0 points across the four measured souls, while crown-envelope, recency, and jitter deltas are tiny and clearance is usually secondary.
 
-- fraction where final winner is already highest-opportunity;
-- winner opportunity rank;
-- winner capture of best opportunity;
-- mean/median break-even multiplier;
-- fraction of events whose break-even is <=1.25 / 1.5 / 2 / 3;
-- mean winner-minus-best-opportunity delta for every non-opportunity score component;
-- relation mix of the highest-opportunity candidates;
-- winner versus best-opportunity axis module counts / branch order, so a large architecture delta can be traced back to establishment/excess-length mechanics rather than inferred from the score alone.
+The absolute context explains the pattern: winners are commonly short/new fine axes with a positive establishment bonus, while highest-opportunity candidates are usually established order-3 continuations with roughly 10–12 modules and architecture contributions around -1.75 to -2.4. The existing continuation rule keeps applying a linear `-0.3 * excessModules` penalty forever after the juvenile preferred-axis length is exceeded.
+
+This makes a mature established limb progressively less competitive precisely because it has survived and grown long enough to reach new interior volume.
+
+## Hypothetical causal preview
+
+Before changing production behavior, JE5 now re-ranks only the actual winner versus the highest-opportunity candidate under one hypothetical mature rule:
+
+- only for post-1k continuation candidates of order 3 or 4;
+- keep the existing establishment bonus while the axis is shorter than its preferred juvenile length;
+- once established, stop accumulating the linear excess-length penalty (architecture contribution becomes 0 rather than increasingly negative);
+- every other score term remains exactly measured/current.
+
+This hypothetical does **not** change the generated tree. It exists only to test whether the old excess-length rule is causally sufficient to explain a meaningful share of missed interior opportunities.
 
 ## Decision rule
 
-- If one specific non-opportunity term consistently supplies most of the winner's advantage, the next experiment changes **that term only** in mature scoring.
-- If several terms are individually small but the best-opportunity candidate usually needs only a modest global multiplier, the next experiment changes the **mature opportunity weight only**.
-- If break-even weights are very large, do not simply overpower the rest of the growth model; inspect why the opportunity candidate is structurally implausible despite being closer to the attraction field.
+- If removing only mature order-3/4 excess-length penalty lets the highest-opportunity candidate overtake the actual winner in a substantial share of 10k/30k sampled events, JE6 changes **that one architecture rule only**.
+- If the effect is weak, do not edit architecture merely because its aggregate delta is large; continue tracing which structural context accounts for the remaining winner advantage.
+- Do not globally multiply opportunity when measured break-even weights are often very large.
 
 Candidate generation, JE1 frontier reachability, depth, envelopes, clearance, renewal, cadence, and LOD remain frozen until this measurement is interpreted.
