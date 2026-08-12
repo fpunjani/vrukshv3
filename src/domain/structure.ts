@@ -1028,13 +1028,6 @@ interface CandidateRejectionCounts {
 
 let candidateRejectionTrace: CandidateRejectionCounts | null = null;
 
-function rejectCandidate(reason: keyof CandidateRejectionCounts): null {
-  if (candidateRejectionTrace) {
-    candidateRejectionTrace[reason] += 1;
-  }
-  return null;
-}
-
 function candidateScoreBreakdown(
   state: TreeState,
   context: GrowthContext,
@@ -1042,37 +1035,47 @@ function candidateScoreBreakdown(
   candidate: Omit<Candidate, "score">,
   traits: TreeTraits,
 ): CandidateScoreBreakdown | null {
+  const rejectionTrace = candidateRejectionTrace;
   const parent = context.projectedById.get(candidate.parent.id);
   const spatialParent = context.spatialById.get(candidate.parent.id);
-  if (!parent || !spatialParent) return rejectCandidate("missingProjection");
+  if (!parent || !spatialParent) {
+    if (rejectionTrace) rejectionTrace.missingProjection += 1;
+    return null;
+  }
 
   const start = parent.end;
   const end = pointFrom(start, candidate.heading, candidate.length);
   const endDepth = spatialParent.endDepth + candidate.depthDelta;
 
   if (!Number.isFinite(end.x) || !Number.isFinite(end.y) || end.y > 0) {
-    return rejectCandidate("nonFiniteOrBelowGround");
+    if (rejectionTrace) rejectionTrace.nonFiniteOrBelowGround += 1;
+    return null;
   }
-  if (candidate.length <= 0.5) return rejectCandidate("tooShort");
+  if (candidate.length <= 0.5) {
+    if (rejectionTrace) rejectionTrace.tooShort += 1;
+    return null;
+  }
   if (!insideMatureVolume(context, eventIndex, end, endDepth)) {
-    if (candidateRejectionTrace) {
+    if (rejectionTrace) {
       const reason = matureVolumeFailureReason(context, eventIndex, end, endDepth);
+      rejectionTrace.outsideMatureVolume += 1;
       if (reason === "horizontal") {
-        candidateRejectionTrace.outsideMatureVolumeHorizontal += 1;
-        if (candidate.steered) candidateRejectionTrace.steeredOutsideMatureVolumeHorizontal += 1;
-        else candidateRejectionTrace.baseOutsideMatureVolumeHorizontal += 1;
+        rejectionTrace.outsideMatureVolumeHorizontal += 1;
+        if (candidate.steered) rejectionTrace.steeredOutsideMatureVolumeHorizontal += 1;
+        else rejectionTrace.baseOutsideMatureVolumeHorizontal += 1;
       }
       if (reason === "vertical") {
-        candidateRejectionTrace.outsideMatureVolumeVertical += 1;
-        if (candidate.steered) candidateRejectionTrace.steeredOutsideMatureVolumeVertical += 1;
-        else candidateRejectionTrace.baseOutsideMatureVolumeVertical += 1;
+        rejectionTrace.outsideMatureVolumeVertical += 1;
+        if (candidate.steered) rejectionTrace.steeredOutsideMatureVolumeVertical += 1;
+        else rejectionTrace.baseOutsideMatureVolumeVertical += 1;
       }
-      if (reason === "depth") candidateRejectionTrace.outsideMatureVolumeDepth += 1;
+      if (reason === "depth") rejectionTrace.outsideMatureVolumeDepth += 1;
     }
-    return rejectCandidate("outsideMatureVolume");
+    return null;
   }
   if (violatesBroadCrownEnvelope(context.bounds, end, state.modules.length)) {
-    return rejectCandidate("broadCrownEnvelope");
+    if (rejectionTrace) rejectionTrace.broadCrownEnvelope += 1;
+    return null;
   }
 
   const clearance =
@@ -1092,11 +1095,12 @@ function candidateScoreBreakdown(
           context.spatialSegments,
         );
   if (clearance < MIN_STRUCTURAL_CLEARANCE) {
-    if (candidateRejectionTrace) {
-      if (candidate.steered) candidateRejectionTrace.steeredSpatialClearance += 1;
-      else candidateRejectionTrace.baseSpatialClearance += 1;
+    if (rejectionTrace) {
+      rejectionTrace.spatialClearance += 1;
+      if (candidate.steered) rejectionTrace.steeredSpatialClearance += 1;
+      else rejectionTrace.baseSpatialClearance += 1;
     }
-    return rejectCandidate("spatialClearance");
+    return null;
   }
 
   const parentAge = state.growthIndex - candidate.parent.bornAtEvent;
