@@ -32,44 +32,33 @@ For every legal candidate expose the contribution of:
 - non-opportunity subtotal;
 - final total.
 
-## Real-event comparison
-
-At the same real mature structural events used by JE3/JE4, compare:
-
-1. the actual final-score winner;
-2. the legal candidate with the highest 3D opportunity score.
-
-Require the diagnostic final winner to match the persisted historical parent/relation and require the sum of the exposed components to match the candidate's actual stored score.
-
-For events where the highest-opportunity candidate has strictly more opportunity than the winner, compute the **break-even opportunity multiplier** `w` such that:
-
-`winner_non_opportunity + w * winner_opportunity = best_non_opportunity + w * best_opportunity`
-
-Current JE4 uses `w = 1`.
-
 ## First measurement finding
 
 Architecture is the dominant mature suppressor of highest-opportunity candidates. By 30k, the winner's mean architecture advantage is roughly +2.2 to +3.0 points across the four measured souls, while crown-envelope, recency, and jitter deltas are tiny and clearance is usually secondary.
 
-The absolute context explains the pattern: winners are commonly short/new fine axes with a positive establishment bonus, while highest-opportunity candidates are usually established order-3 continuations with roughly 10–12 modules and architecture contributions around -1.75 to -2.4. The existing continuation rule keeps applying a linear `-0.3 * excessModules` penalty forever after the juvenile preferred-axis length is exceeded.
+The axis context makes the cause concrete: highest-opportunity candidates are usually established order-3 continuations with roughly 10–12 modules and architecture contributions around -1.75 to -2.4, while winners are commonly short/new order-4 axes with architecture around 0 to +0.6. The juvenile architecture rule keeps applying a linear `-0.3 * excessModules` penalty forever after the preferred axis length is exceeded.
 
-This makes a mature established limb progressively less competitive precisely because it has survived and grown long enough to reach new interior volume.
+## Hypothetical 1 — remove only mature excess penalty
 
-## Hypothetical causal preview
+JE5 first re-ranked the actual winner versus the highest-opportunity candidate while removing only the negative excess-length penalty from established order-3/4 continuations but retaining the positive short-axis establishment bonus.
 
-Before changing production behavior, JE5 now re-ranks only the actual winner versus the highest-opportunity candidate under one hypothetical mature rule:
+This was **not sufficient** at mature scale. It reversed many 3k decisions and a few early mature decisions, but at 30k it rarely changed the winner (only ash-01 changed 1/6 sampled events; the other measured souls changed 0/6). The remaining positive establishment bonus on short/new fine continuations continued to favor peripheral fresh axes.
 
-- only for post-1k continuation candidates of order 3 or 4;
-- keep the existing establishment bonus while the axis is shorter than its preferred juvenile length;
-- once established, stop accumulating the linear excess-length penalty (architecture contribution becomes 0 rather than increasingly negative);
-- every other score term remains exactly measured/current.
+## Hypothetical 2 — neutral mature fine-continuation architecture
 
-This hypothetical does **not** change the generated tree. It exists only to test whether the old excess-length rule is causally sufficient to explain a meaningful share of missed interior opportunities.
+The next behavior-free re-ranking sets the architecture contribution to **0** for every post-1k order-3/4 continuation candidate, regardless of whether that axis is short or long. This removes both halves of the juvenile length-shaping rule from mature fine continuation competition:
+
+- no positive establishment bonus for a newly short fine continuation;
+- no accumulating excess-length penalty for an established fine continuation.
+
+Renewal, lateral, order-0/1/2 architecture, opportunity, clearance, frontier, geometry, envelopes, and all other score terms remain exactly measured/current.
+
+This is still only a hypothetical diagnostic. It does not alter the generated organism.
 
 ## Decision rule
 
-- If removing only mature order-3/4 excess-length penalty lets the highest-opportunity candidate overtake the actual winner in a substantial share of 10k/30k sampled events, JE6 changes **that one architecture rule only**.
-- If the effect is weak, do not edit architecture merely because its aggregate delta is large; continue tracing which structural context accounts for the remaining winner advantage.
+- If neutralizing mature order-3/4 continuation architecture causes the highest-opportunity candidate to overtake the actual winner in a substantial share of 10k/30k sampled events across souls, JE6 changes **that one architecture rule only**.
+- If the effect remains weak, architecture is correlated with the failure but not causally sufficient; continue tracing score/geometry instead of editing it blindly.
 - Do not globally multiply opportunity when measured break-even weights are often very large.
 
 Candidate generation, JE1 frontier reachability, depth, envelopes, clearance, renewal, cadence, and LOD remain frozen until this measurement is interpreted.
